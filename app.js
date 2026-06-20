@@ -36,6 +36,27 @@
   const NARRATIVE_DATA = window.SHEPHERD_NARRATIVE_DATA || {};
   const STAGE_NARRATIVE = window.SHEPHERD_STAGE_NARRATIVE || {};
   const OVERLAY_NARRATIVE = window.SHEPHERD_OVERLAY_NARRATIVE || {};
+
+  const ASSET_CHUNKS = window.SHEPHERD_ASSET_CHUNKS || {};
+  const ASSET_CACHE = {};
+
+  function normalizeAssetKey(src) {
+    return String(src || "").replace(/[?#].*$/, "").replace(/^\.\/+/, "").replace(/^\/+/, "");
+  }
+
+  function resolveAssetUrl(src) {
+    if (!src || typeof src !== "string") return src || "";
+    if (/^(data:|blob:|https?:)/i.test(src)) return src;
+    const key = normalizeAssetKey(src);
+    const chunks = ASSET_CHUNKS[key] || ASSET_CHUNKS[`./${key}`] || null;
+    if (!chunks) return src;
+    if (!ASSET_CACHE[key]) {
+      ASSET_CACHE[key] = chunks.join("");
+      ASSET_CHUNKS[key] = [ASSET_CACHE[key]];
+    }
+    return ASSET_CACHE[key];
+  }
+
   const SLOT_STAKES = NARRATIVE_DATA.slotStakes || {};
   const INTRO_NOTICES = NARRATIVE_DATA.introNotices || {};
   const RECOVERY_COPY = NARRATIVE_DATA.recoveryCopy || {};
@@ -1648,9 +1669,9 @@
       introLead: present.introLead || "",
       introBody: present.introBody || "",
       introHint: present.introHint || "",
-      previewSlice: present.previewSlice || present.portraitFull || "",
+      previewSlice: resolveAssetUrl(present.previewSlice || present.portraitFull || ""),
       previewAvailabilityText: present.previewAvailabilityText || (present.startEnabled ? "可进入该角色线路" : "仅供展示 / 暂无可玩线路"),
-      portraitFull: present.portraitFull || "",
+      portraitFull: resolveAssetUrl(present.portraitFull || ""),
       paintingOrder: present.paintingOrder || 0,
       paintingHotspot: present.paintingHotspot || null,
       tooltipLabel: present.tooltipLabel || entity.short || playable?.name || id,
@@ -6618,7 +6639,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
 
   function renderTitle() {
     const roles = listPresentationRoles();
-    const groupImage = TITLE_PRESENTATION.groupImage || "";
+    const groupImage = resolveAssetUrl(TITLE_PRESENTATION.groupImage || "");
     const viewBox = TITLE_PRESENTATION.viewBox || "0 0 3840 1648";
     const previewStyle = titlePreviewCssVars();
     return `
@@ -6846,11 +6867,12 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     const voteRevealMode = state.slotIndex === SLOT_ORDER.indexOf(VOTE_REVEAL_SLOT);
     const supperSceneMode = !!PC_SUPPER_SCENE_PROFILES[role.id] && !voteRevealMode;
     const supperSceneVisual = supperSceneMode ? buildSupperSceneVisual(role.id) : null;
-    const sceneMapSrc = supperSceneMode
+    const rawSceneMapSrc = supperSceneMode
       ? CHARACTER_PRESENTATION[role.id]?.previewSlice || CHARACTER_PRESENTATION[role.id]?.portraitFull || slot.map
       : voteRevealMode
         ? SLOT_META[VOTE_REVEAL_SLOT].map
         : slot.map;
+    const sceneMapSrc = resolveAssetUrl(rawSceneMapSrc);
     const lowSanEcho = buildLowSanEcho(state, "header", slotId);
     return `
       <section class="frame game-layout ${isLowSan(state) ? "low-san" : ""}">
@@ -7195,7 +7217,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
 
   function buildSupperSceneVisual(roleId) {
     const present = CHARACTER_PRESENTATION[roleId] || {};
-    const groupImage = TITLE_PRESENTATION.groupImage || "./assets/ui/title-group.png";
+    const groupImage = resolveAssetUrl(TITLE_PRESENTATION.groupImage || "./assets/ui/title-group.png");
     const hotspot = present.paintingHotspot || {};
     const sourcePath = hotspot.outlinePath || hotspot.points || hotspot.hitPath || "";
     const pointPairs = [...String(sourcePath).matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)].map((match) => [Number(match[1]), Number(match[2])]);
