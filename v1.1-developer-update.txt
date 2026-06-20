@@ -1,0 +1,67 @@
+牧羊人疗养院 AVG v1.1 开发者更新说明
+版本日期：2026-06-21
+仓库：https://github.com/ly1550079510/shepherd-sanitarium-avg
+公开 Pages：https://ly1550079510.github.io/shepherd-sanitarium-avg/
+发布提交：543a0dd Update AVG gameplay and archive UI
+
+一、版本定位
+v1.1 基于 v1.0 GitHub Pages 公开版本继续开发，未迁移到构建框架，仍保持纯静态 HTML/CSS/JS 结构。主要修改集中在 app.js、story-data.js、style.css，并新增 1931 标题模式所需图片资源。
+
+二、核心功能改动
+1. 真相线重构
+STORY_DATA.truthRoute 现以 collections 为主，采用“材料选择页 + 材料详情页”结构。screen 仍使用 truth，增加 truthCollectionId 与 truthPageIndex 来恢复阅读位置。旧 pages 字段保留兼容。
+
+2. 1931 标题模式
+meta 增加并使用 titleTruthMode 与 truthRouteManualUnlock。点击标题 H1 可在普通标题与“牧羊人疗养院-1931”之间切换。1931 模式使用 assets/ui/title-group-1931.png，并仅展示 truthOnly 人物热区。
+
+3. 结局系统与图鉴
+determineOutcome/createOutcome 使用结局 key 生成通用结局、个人特殊结局和角色定制文案。角色完成一次后，档案卡内显示该角色所有结局按钮。v1.1 已移除“图鉴键值”展示，改为显示 getEndingConditionText() 返回的触发条件。
+
+4. 全局 meta 进度
+localStorage key 为 shepherd_sanitarium_degree2_meta。关键字段包括 completedRoles、endingKeysSeen、truthRouteUnlocked、truthRouteCompleted、truthRouteManualUnlock、titleTruthMode。完成线路后同步 meta 与 archive。
+
+5. 撤回系统
+state.undoStack 保存选择前快照。chooseOption() 在应用 effects 前入栈，undoLastChoice() 恢复 slotIndex、phase、scene、stats、relations、voteLedger、voteTally、voteDeaths、flags、route、log 等关键字段。撤回不新增路线数据字段，仅扩展 state。
+
+6. 关系与投票规则
+普通选择现在通过 applyAmbientRelationRipples() 产生轻微全局旁观反应与中幅度同场涟漪。投票权重由 getRelationPlayerVoteMultiplier() 管理：-15~-6 为 1.5，-5~-1 为 1.25，0 为 1，1~5 为 0.75，6~15 为 0.5。若 flags.karlExposed <= 0，中间关系角色进入真实随机乱投。
+
+7. 投票公开 UI
+renderVoteRevealPanel() 已统一所有角色路线，删除安洁专用简化分支。新增 renderVoteExileSilhouette()、vote-exile-visual、vote-stat-board 等视觉结构，展示放逐者剪影、有效票、投向玩家、最高票、放逐数等统计。
+
+8. 档案与存档入口
+角色档案卡在 completedRoles 命中时添加 completed 类，已见结局按钮添加 seen 类。角色介绍二级页入口功能区新增“手动读取存档”按钮，复用 open-save overlay 与 load-slot 逻辑。
+
+三、新增或重要资源
+1. assets/ui/title-group-1931.png
+2. assets/portraits/truth-1931/william-halloway.png
+3. assets/portraits/truth-1931/eleanor-black.png
+4. assets/portraits/truth-1931/lucy-black.png
+
+四、发布结构
+发布根目录仍为仓库根目录，包含 index.html、app.js、story-data.js、style.css、assets/、map-*.jpeg、.nojekyll。GitHub Pages Source 使用 main 分支根目录。
+
+五、验证记录
+本地发布前执行：
+1. node --check app.js
+2. node --check story-data.js
+3. 扫描 app.js、story-data.js、style.css，确认无问号三连、替换字符或“图鉴键值”残留。
+4. 本地 http.server 加载标题页、vote-safe QA 投票公开页、角色介绍页、1931 标题模式。
+
+线上发布后确认：
+1. https://ly1550079510.github.io/shepherd-sanitarium-avg/ 返回 200。
+2. app.js?v=543a0dd 返回新版本大小 457713。
+3. assets/ui/title-group-1931.png?v=543a0dd 返回 200。
+
+六、兼容与风险
+1. 旧存档通过 normalizeState() 兼容新增字段，但极旧存档可能缺少部分 archive/meta 信息，页面会回落到标题页或默认状态。
+2. 投票迷茫规则使用 Math.random()，因此未揭露卡尔时的中间关系 NPC 票型不保证读档重复一致。
+3. 结局图鉴观赏不应写入 endingKeysSeen，也不应调用 finishRoute()。
+4. GitHub Pages 可能有 CDN 缓存，测试新版本时建议使用 ?v=543a0dd。
+5. 所有中文文件修改应继续遵守项目约束：不要在 PowerShell 管道或 here-string 中直接嵌入中文；使用 UTF-8 Python 脚本或 Unicode 转义写入。
+
+七、后续建议
+1. 为投票权重与结局判定补一组可重复的 JS 单元测试或 QA helper。
+2. 为真相资料阅读器增加已读进度标记。
+3. 将存档导入/导出做成显式 JSON 功能，降低浏览器 localStorage 丢失风险。
+4. 若继续扩大图片资源，保持 Git/CLI 发布，不使用 GitHub 网页上传。
