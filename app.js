@@ -7,7 +7,7 @@
   const ENTITIES = STORY_DATA.entities || {};
   const ROLE_DEFS = STORY_DATA.roleDefs || {};
   const ENDING_PROFILES = STORY_DATA.endingProfiles || { common: {}, roles: {}, special: {} };
-  const TRUTH_ROUTE = STORY_DATA.truthRoute || { title: "埃莉诺的记录", subtitle: "上帝视角真相路线", pages: [], epilogue: [] };
+  const TRUTH_ROUTE = STORY_DATA.truthRoute || { title: "埃莉诺的文件夹", subtitle: "上帝视角真相路线", pages: [], epilogue: [] };
   const TITLE_PRESENTATION = STORY_DATA.titlePresentation || {};
   const CHARACTER_PRESENTATION = STORY_DATA.characterPresentation || {};
   const SLOT_META = STORY_DATA.slotMeta || {};
@@ -465,6 +465,8 @@
   const PRESENTATION_ROLE_ORDER = Object.entries(CHARACTER_PRESENTATION)
     .sort(([, a], [, b]) => Number(a.paintingOrder || 0) - Number(b.paintingOrder || 0))
     .map(([id]) => id);
+  const NORMAL_PRESENTATION_ROLE_ORDER = PRESENTATION_ROLE_ORDER.filter((id) => !CHARACTER_PRESENTATION[id]?.truthOnly);
+  const TRUTH_PRESENTATION_ROLE_ORDER = PRESENTATION_ROLE_ORDER.filter((id) => CHARACTER_PRESENTATION[id]?.truthOnly);
   const STORY_DATA_ISSUES = [
     !app && "#app 容器缺失",
     !Object.keys(ENTITIES).length && "entities 缺失",
@@ -508,13 +510,16 @@
       slotIndex: 0,
       phase: "decision",
       scenePage: 0,
+      truthCollectionId: null,
       truthPageIndex: 0,
+      galleryEnding: null,
       scene: null,
       notice: "",
       fast: false,
       sound: true,
       route: [],
       log: [],
+      undoStack: [],
       archive: {},
       autosave: false,
       finished: false,
@@ -560,6 +565,10 @@
     const qaPreset = getQaPresetFromLocation();
     if (qaPreset) {
       boot = normalizeState({ ...boot, ...qaPreset.state, scene: qaPreset.scene || null });
+    } else if (boot.screen === "truth" && isTruthRouteUnlocked()) {
+      boot.overlay = null;
+      boot.phase = "decision";
+      boot.scene = null;
     } else {
       boot.screen = "title";
       boot.overlay = null;
@@ -1266,12 +1275,17 @@
       exiledByVote: !!input?.exiledByVote,
       route: Array.isArray(input?.route) ? input.route : [],
       log: Array.isArray(input?.log) ? input.log : [],
+      undoStack: Array.isArray(input?.undoStack) ? input.undoStack : [],
     };
     merged.screen = ["title", "select", "archive", "game", "end", "truth"].includes(merged.screen) ? merged.screen : "title";
     merged.phase = merged.phase === "result" ? "result" : "decision";
     merged.overlay = ["log", "save"].includes(merged.overlay) ? merged.overlay : null;
     merged.scenePage = clamp(Number(merged.scenePage || 0), 0, 99);
-    merged.truthPageIndex = clamp(Number(merged.truthPageIndex || 0), 0, 99);
+    merged.truthCollectionId = typeof input?.truthCollectionId === "string" ? input.truthCollectionId : null;
+    merged.truthPageIndex = clamp(Number(merged.truthPageIndex || 0), 0, 999);
+    merged.galleryEnding = input?.galleryEnding && typeof input.galleryEnding.roleId === "string" && typeof input.galleryEnding.key === "string"
+      ? { roleId: input.galleryEnding.roleId, key: input.galleryEnding.key }
+      : null;
       if (role) {
       merged.selectedRole = roleId;
       merged.maxStats.hp = BASE_HP;
@@ -1408,18 +1422,24 @@
       endingKeysSeen: [],
       truthRouteUnlocked: false,
       truthRouteCompleted: false,
+      truthRouteManualUnlock: false,
+      titleTruthMode: false,
     };
   }
 
   function normalizeMeta(input = {}) {
     const completedRoles = [...new Set(Array.isArray(input.completedRoles) ? input.completedRoles : [])].filter((id) => PLAYABLE_ROLE_IDS.includes(id));
     const endingKeysSeen = [...new Set(Array.isArray(input.endingKeysSeen) ? input.endingKeysSeen : [])].filter(Boolean);
-    const truthRouteUnlocked = completedRoles.length >= PLAYABLE_ROLE_IDS.length;
+    const truthRouteManualUnlock = !!input.truthRouteManualUnlock;
+    const titleTruthMode = !!input.titleTruthMode;
+    const truthRouteUnlocked = truthRouteManualUnlock || completedRoles.length >= PLAYABLE_ROLE_IDS.length;
     return {
       completedRoles,
       endingKeysSeen,
       truthRouteUnlocked,
       truthRouteCompleted: !!input.truthRouteCompleted,
+      truthRouteManualUnlock,
+      titleTruthMode,
     };
   }
 
@@ -1465,6 +1485,22 @@
     const meta = normalizeMeta({ ...loadMeta(), truthRouteCompleted: true });
     saveMeta(meta);
     return meta;
+  }
+
+  function manualUnlockTruthRoute() {
+    const current = loadMeta();
+    const nextTitleTruthMode = !current.titleTruthMode;
+    const meta = normalizeMeta({
+      ...current,
+      titleTruthMode: nextTitleTruthMode,
+      truthRouteManualUnlock: nextTitleTruthMode ? true : current.truthRouteManualUnlock,
+    });
+    saveMeta(meta);
+    titlePreviewRoleId = null;
+    titleTouchArmedRoleId = null;
+    state.truthPageIndex = 0;
+    persist();
+    render();
   }
 
   function isTruthRouteUnlocked() {
@@ -1660,8 +1696,9 @@
     };
   }
 
-  function listPresentationRoles() {
-    return PRESENTATION_ROLE_ORDER.map((id) => getPresentationRole(id)).filter(Boolean);
+  function listPresentationRoles(mode = "normal") {
+    const order = mode === "truth" ? TRUTH_PRESENTATION_ROLE_ORDER : NORMAL_PRESENTATION_ROLE_ORDER;
+    return order.map((id) => getPresentationRole(id)).filter(Boolean);
   }
 
   function currentSlotId() {
@@ -1677,7 +1714,17 @@
     return PLAYABLE_ROLE_IDS.filter((id) => state.archive?.[id] || loadMeta().completedRoles.includes(id)).length;
   }
 
-  function truthRoutePageCount() {
+  function truthCollections() {
+    return Array.isArray(TRUTH_ROUTE.collections) ? TRUTH_ROUTE.collections : [];
+  }
+
+  function truthCollectionById(collectionId = state.truthCollectionId) {
+    return truthCollections().find((collection) => collection.id === collectionId) || null;
+  }
+
+  function truthRoutePageCount(collectionId = state.truthCollectionId) {
+    const collection = truthCollectionById(collectionId);
+    if (collection) return Array.isArray(collection.pages) ? collection.pages.length : 0;
     const pages = Array.isArray(TRUTH_ROUTE.pages) ? TRUTH_ROUTE.pages : [];
     const hasEpilogue = Array.isArray(TRUTH_ROUTE.epilogue) && TRUTH_ROUTE.epilogue.length;
     return pages.length + (hasEpilogue ? 1 : 0);
@@ -1692,9 +1739,9 @@
     return `
       <section class="${className}">
         <div>
-          <div class="eyebrow">${meta.truthRouteCompleted ? "记录已读完" : "真相路线已解锁"}</div>
-          <h2>${TRUTH_ROUTE.title || "埃莉诺的记录"}</h2>
-          <p>${TRUTH_ROUTE.subtitle || "上帝视角真相路线"} · 已完成 ${completed} / ${PLAYABLE_ROLE_IDS.length} 名主角线路。</p>
+          <div class="eyebrow">${meta.truthRouteCompleted ? "文件夹已读完" : "真相路线已解锁"}</div>
+          <h2>${TRUTH_ROUTE.title || "埃莉诺的文件夹"}</h2>
+          <p>${TRUTH_ROUTE.subtitle || "上帝视角真相路线"} · ${meta.truthRouteManualUnlock ? "标题隐藏入口已启动" : `已完成 ${completed} / ${PLAYABLE_ROLE_IDS.length} 名主角线路`}。</p>
         </div>
         <button class="btn primary" data-action="open-truth">${meta.truthRouteCompleted ? "重读真相路线" : "进入真相路线"}</button>
       </section>
@@ -1740,25 +1787,49 @@
     state.phase = "decision";
     state.scene = null;
     state.scenePage = 0;
+    state.truthCollectionId = null;
     state.truthPageIndex = 0;
     persist();
     render();
   }
 
-  function continueTruthRoute() {
+  function openTruthCollection(collectionId) {
     if (state.screen !== "truth") return;
-    const total = truthRoutePageCount();
-    const current = clamp(Number(state.truthPageIndex || 0), 0, Math.max(0, total - 1));
-    if (current >= total - 1) {
-      markTruthRouteCompleted();
-      state.truthPageIndex = current;
-      persist();
-      render();
-      return;
-    }
-    state.truthPageIndex = current + 1;
+    const collection = truthCollectionById(collectionId);
+    if (!collection) return;
+    state.truthCollectionId = collection.id;
+    state.truthPageIndex = 0;
     persist();
     render();
+  }
+
+  function backTruthIndex() {
+    if (state.screen !== "truth") return;
+    state.truthCollectionId = null;
+    state.truthPageIndex = 0;
+    persist();
+    render();
+  }
+
+  function stepTruthPage(delta) {
+    if (state.screen !== "truth") return;
+    const collection = truthCollectionById();
+    if (!collection) return;
+    const total = Math.max(1, truthRoutePageCount(collection.id));
+    state.truthPageIndex = clamp(Number(state.truthPageIndex || 0) + delta, 0, total - 1);
+    persist();
+    render();
+  }
+
+  function completeTruthRoute() {
+    if (state.screen !== "truth") return;
+    markTruthRouteCompleted();
+    persist();
+    render();
+  }
+
+  function continueTruthRoute() {
+    stepTruthPage(1);
   }
 
   function openPresentationRole(roleId) {
@@ -2585,6 +2656,50 @@
     return bestTarget;
   }
 
+  function getRelationPlayerVoteMultiplier(relation) {
+    const value = clamp(Number(relation || 0), RELATION_MIN, RELATION_MAX);
+    if (value >= -15 && value <= -6) return 1.5;
+    if (value >= -5 && value <= -1) return 1.25;
+    if (value >= 1 && value <= 5) return 0.75;
+    if (value >= 6 && value <= 15) return 0.5;
+    return 1;
+  }
+
+  function hasKarlExposedBeforeVote(draftState) {
+    return Number(draftState?.flags?.karlExposed || 0) > 0;
+  }
+
+  function chooseWeightedRandomVoteTarget(voterId, draftState) {
+    const playerId = draftState.selectedRole;
+    const relation = clamp(Number(draftState.relations?.[voterId] || 0), RELATION_MIN, RELATION_MAX);
+    const candidates = getLivingVoteTargets(draftState, voterId)
+      .filter((id, index, array) => id && id !== "abstain" && array.indexOf(id) === index);
+    if (!candidates.length) return playerId || "player";
+    const weighted = candidates.map((id) => ({
+      id,
+      weight: Math.max(0.1, id === playerId ? getRelationPlayerVoteMultiplier(relation) : 1),
+    }));
+    const total = weighted.reduce((sum, item) => sum + item.weight, 0);
+    let roll = Math.random() * total;
+    for (const item of weighted) {
+      roll -= item.weight;
+      if (roll <= 0) return item.id;
+    }
+    return weighted[weighted.length - 1]?.id || candidates[0];
+  }
+
+  function resolveWeightedVoteTarget(voterId, draftState, playerChoice = null) {
+    const playerId = draftState.selectedRole;
+    const relation = clamp(Number(draftState.relations?.[voterId] || 0), RELATION_MIN, RELATION_MAX);
+    const baseTarget = resolveNeutralVoteTarget(voterId, draftState, playerChoice);
+    if (!playerId || relation <= -16 || relation >= 16 || baseTarget === playerId) return baseTarget;
+    const candidates = [baseTarget, playerId].filter((id, index, array) => id && id !== "abstain" && array.indexOf(id) === index);
+    const weights = Object.fromEntries(candidates.map((id) => [id, id === playerId ? getRelationPlayerVoteMultiplier(relation) : 1]));
+    const bestScore = Math.max(...Object.values(weights));
+    const winners = candidates.filter((id) => weights[id] === bestScore);
+    return winners.includes(baseTarget) ? baseTarget : winners[0] || baseTarget;
+  }
+
   function resolveVoteLedger(draftState, playerVote = "crowd") {
     const playerId = draftState.selectedRole;
     const normalizedPlayerVote = !playerVote || playerVote === "crowd"
@@ -2601,6 +2716,7 @@
       tally[targetId] = (tally[targetId] || 0) + 1;
     };
     addVote("player", playerChoice);
+    const karlExposed = hasKarlExposedBeforeVote(draftState);
     Object.keys(ENTITIES).forEach((voterId) => {
       if (voterId === playerId || !isEntityAlive(draftState, voterId)) return;
       const relation = clamp(Number(draftState.relations?.[voterId] || 0), RELATION_MIN, RELATION_MAX);
@@ -2609,8 +2725,10 @@
         targetId = playerId;
       } else if (relation >= 16) {
         targetId = playerChoice;
+      } else if (!karlExposed && relation >= -15 && relation <= 15) {
+        targetId = chooseWeightedRandomVoteTarget(voterId, draftState);
       } else {
-        targetId = resolveNeutralVoteTarget(voterId, draftState, playerChoice);
+        targetId = resolveWeightedVoteTarget(voterId, draftState, playerChoice);
       }
       addVote(voterId, targetId);
     });
@@ -2735,7 +2853,7 @@
       effects.stats.mp += draftState.maxStats.mp - draftState.stats.mp;
       effects.flags.restUsedSlot = slotId;
       effects.stats.hp += isHeavyInjury(draftState) ? 2 : 1;
-      effects.stats.san += 2;
+      effects.stats.san += 3;
       effects.notes.push("你把这十五分钟留给自己，也因此错过了别处更早开始的异动。");
     }
 
@@ -3023,8 +3141,16 @@
     }
 
     applyInteractionRelationFallback(draftState, intent, encounterId, effects);
+    applyAmbientRelationRipples(draftState, intent, encounterId, effects);
 
+    effects.stats.san = rebalanceSanDelta(effects.stats.san, intent);
     return effects;
+  }
+
+  function rebalanceSanDelta(delta, intent = {}) {
+    const value = Number(delta || 0);
+    if (value >= 0) return value;
+    return Math.min(-1, Math.ceil(value * 0.8));
   }
 
   function applyEffectsToState(draftState, effects, scene) {
@@ -3088,6 +3214,52 @@
     draftState.visits[visitKey] = (draftState.visits[visitKey] || 0) + 1;
     draftState.flags.truthSeen = Math.max(draftState.flags.truthSeen || 0, draftState.stats.truth);
     draftState.npcPositions = advanceNpcPositions(draftState, scene.slotId, visitKey);
+  }
+
+  function addRelationRipple(effects, id, delta, direct = false) {
+    if (!id || !ENTITIES[id] || !delta) return;
+    const bucket = direct ? effects.relations : effects.relationEchoes;
+    bucket[id] = clamp((bucket[id] || 0) + delta, -6, 6);
+  }
+
+  function getAmbientRelationDelta(intent = {}, effects = {}) {
+    const tags = intent.tags || [];
+    if (tags.includes("attack") || tags.includes("vote")) return 0;
+    if (tags.includes("protect") || tags.includes("social") || tags.includes("public")) return 0;
+    if (tags.includes("rest")) return -1;
+    if (effects.generatorGain > 0) return 1;
+    if (tags.includes("investigate") || Number(effects.stats?.truth || 0) > 0) return 1;
+    if (intent.actionTier === "gamble") return -1;
+    if (intent.actionTier === "safe" && Number(intent.calm || 0) > 0) return 1;
+    return 0;
+  }
+
+  function applyAmbientRelationRipples(draftState, intent, encounterId, effects = {}) {
+    if (!draftState || !intent || !effects) return;
+    const roleId = draftState.selectedRole;
+    const changed = new Set([
+      ...Object.keys(effects.relations || {}),
+      ...Object.keys(effects.relationEchoes || {}),
+    ]);
+    const baseDelta = getAmbientRelationDelta(intent, effects);
+    if (!baseDelta) return;
+    const localTargets = new Set([
+      encounterId,
+      ...(intent.targets || []),
+      ...getWitnessesForIntent(draftState, intent, [roleId], effects.positions?.player || intent.location?.code),
+    ].filter((id) => id && id !== roleId && ENTITIES[id] && isEntityAlive(draftState, id)));
+    localTargets.forEach((id) => {
+      if (changed.has(id)) return;
+      const localDelta = clamp(baseDelta * (intent.actionTier === "gamble" ? 3 : 2), -4, 4);
+      addRelationRipple(effects, id, localDelta, id === encounterId || intent.targets?.includes(id));
+      changed.add(id);
+    });
+    const globalDelta = clamp(baseDelta, -1, 1);
+    if (!globalDelta) return;
+    Object.keys(ENTITIES).forEach((id) => {
+      if (id === roleId || changed.has(id) || !isEntityAlive(draftState, id)) return;
+      addRelationRipple(effects, id, globalDelta, false);
+    });
   }
 
 function applyInteractionRelationFallback(draftState, intent, encounterId, effects = {}) {
@@ -6292,6 +6464,159 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     `;
   }
 
+  function listEndingGalleryEntries(roleId) {
+    const commonKeys = Object.keys(ENDING_PROFILES.common || {});
+    const specialEntries = Object.values(ENDING_PROFILES.special || {}).filter((entry) => entry?.key?.startsWith(`special.${roleId}_`));
+    return [
+      ...commonKeys.map((key) => ({ key, scope: "common" })),
+      ...specialEntries.map((entry) => ({ key: entry.key, scope: "special" })),
+    ];
+  }
+
+  function getEndingConditionText(roleId, endingKey) {
+    const common = {
+      "common.vote_exile": "投票公开时主角成为最高票，或平票名单包含主角。",
+      "common.dead": "路线结束前 HP 降至 0。",
+      "common.mad": "路线结束前 SAN 降至 0。",
+      "common.trapped": "进入终局时发电机进度不足 4。",
+      "common.sacrifice_failed_body": "最终选择牺牲，但 HP / maxHp 不高于 50%。",
+      "common.sacrifice_failed_sanity": "最终选择牺牲，但 SAN 低于 40。",
+      "common.sacrifice": "最终选择牺牲，且身体与理智仍能支撑断后。",
+      "common.loop_low_truth": "发电机进度达到 4，但真相值低于 76。",
+      "common.loop_wounded": "发电机进度达到 4，真相值不低于 76，但主角处于重伤。",
+      "common.loop_unstable": "发电机进度达到 4，真相值不低于 76，但 SAN 低于 40。",
+      "common.escape": "发电机进度达到 4，未触发特殊结局或循环惩罚，完成普通逃生。",
+    };
+    const special = {
+      fan: "塔比瑟最终选择牺牲，真相值不低于 51，且 SAN 不低于 40。",
+      ziche: "子车修满 4 台发电机、HP 不低于 7、平均关系值不高于 0，且未选择牺牲。",
+      yamada: "山田保护过艾米莉，艾米莉关系不低于 14，且发电机进度达到 4。",
+      anjie: "安洁真相值不低于 76、派翠克关系不低于 14、未重伤，且 SAN 不低于 40。",
+      debora: "狄波拉揭露卡尔至少 2 次、真相值不低于 51，且发电机进度达到 4。",
+      patrick: "派翠克获得安息标记，且安洁关系不低于 14。",
+    };
+    if (common[endingKey]) return common[endingKey];
+    if (String(endingKey || "").startsWith("special.")) return special[roleId] || "满足该角色个人特殊结局条件。";
+    return "满足该结局的对应判定条件。";
+  }
+
+  function hasSeenEndingKey(roleId, endingKey) {
+    const meta = loadMeta();
+    return (meta.endingKeysSeen || []).includes(endingKey) || state.outcome?.roleId === roleId && state.outcome?.key === endingKey;
+  }
+
+  function getEndingGalleryEntry(roleId, endingKey) {
+    const role = ROLE_DEFS[roleId] || {};
+    const specialEntry = endingKey?.startsWith("special.")
+      ? Object.values(ENDING_PROFILES.special || {}).find((entry) => entry.key === endingKey)
+      : null;
+    const commonEntry = ENDING_PROFILES.common?.[endingKey] || {};
+    const title = specialEntry?.title || commonEntry.title || "\u672a\u547d\u540d\u7ed3\u5c40";
+    const note = specialEntry?.note || commonEntry.note || endingKey || "";
+    const text = specialEntry?.text || ENDING_PROFILES.roles?.[roleId]?.[endingKey] || role.endingNotes?.lost || "\u8be5\u7ed3\u5c40\u6587\u6848\u5c1a\u672a\u914d\u7f6e\u3002";
+    return {
+      key: endingKey,
+      title,
+      note,
+      text,
+      condition: getEndingConditionText(roleId, endingKey),
+      scope: endingKey?.startsWith("special.") ? "\u4e2a\u4eba\u7279\u6b8a\u7ed3\u5c40" : "\u901a\u7528\u7ed3\u5c40",
+    };
+  }
+
+  function renderEndingGallery(roleId) {
+    const entries = listEndingGalleryEntries(roleId);
+    if (!entries.length) return "";
+    const selectedKey = state.galleryEnding?.roleId === roleId ? state.galleryEnding.key : entries[0].key;
+    const selected = getEndingGalleryEntry(roleId, selectedKey);
+    return `
+      <section class="ending-gallery">
+        <div class="panel-headline">\u7ed3\u5c40\u56fe\u9274</div>
+        <div class="ending-gallery-buttons">
+          ${entries.map(({ key }) => {
+            const item = getEndingGalleryEntry(roleId, key);
+            const seen = hasSeenEndingKey(roleId, key);
+            return `<button class="small-pill ending-gallery-button ${key === selectedKey ? "active" : ""} ${seen ? "seen" : ""}" data-action="view-ending-gallery" data-role="${roleId}" data-ending="${escapeHtml(key)}">${escapeHtml(item.title)}</button>`;
+          }).join("")}
+        </div>
+        <article class="ending-gallery-detail">
+          <div class="archive-meta">${escapeHtml(selected.scope)} \u00b7 ${escapeHtml(selected.note)}</div>
+          <h3>${escapeHtml(selected.title)}</h3>
+          <p>${escapeHtml(selected.text)}</p>
+          <div class="detail-line"><strong>\u5224\u5b9a\u6761\u4ef6</strong><span>${escapeHtml(selected.condition)}</span></div>
+        </article>
+      </section>
+    `;
+  }
+
+  const UNDO_STATE_KEYS = [
+    "slotIndex",
+    "phase",
+    "scene",
+    "scenePage",
+    "stats",
+    "generators",
+    "relations",
+    "suspicion",
+    "visits",
+    "clues",
+    "items",
+    "keyChoices",
+    "alliances",
+    "npcPositions",
+    "playerPosition",
+    "deadEntities",
+    "voteLedger",
+    "voteTally",
+    "voteDeaths",
+    "exiledByVote",
+    "flags",
+    "route",
+    "log",
+    "notice",
+    "finished",
+    "outcome",
+  ];
+
+  function createUndoSnapshot(currentState = state) {
+    const snapshot = {};
+    UNDO_STATE_KEYS.forEach((key) => {
+      snapshot[key] = structuredClone(currentState[key]);
+    });
+    return snapshot;
+  }
+
+  function restoreUndoSnapshot(snapshot) {
+    if (!snapshot) return false;
+    UNDO_STATE_KEYS.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+        state[key] = structuredClone(snapshot[key]);
+      }
+    });
+    state.screen = "game";
+    state.overlay = null;
+    state.phase = "decision";
+    state.scene = null;
+    state.scenePage = 0;
+    state.finished = false;
+    state.outcome = null;
+    state.autosave = true;
+    state.notice = state.notice || "已撤回到上一时段选择前。";
+    state = normalizeState(state);
+    return true;
+  }
+
+  function undoLastChoice() {
+    if (state.screen !== "game" || !Array.isArray(state.undoStack) || !state.undoStack.length) return;
+    const nextStack = state.undoStack.slice(0, -1);
+    const snapshot = state.undoStack[state.undoStack.length - 1];
+    if (!restoreUndoSnapshot(snapshot)) return;
+    state.undoStack = nextStack;
+    state.notice = "已撤回上一步选择。";
+    persist();
+    render();
+  }
+
   function chooseOption(optionKey) {
     const slotId = currentSlotId();
     const role = currentRole();
@@ -6313,6 +6638,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       render();
       return;
     }
+    const undoSnapshot = createUndoSnapshot(state);
     state.scene = scene;
     state.phase = "result";
     state.scenePage = 0;
@@ -6338,6 +6664,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       chips: scene.effectChips,
       summary: scene.summary,
     });
+    state.undoStack = [...(Array.isArray(state.undoStack) ? state.undoStack : []), undoSnapshot];
     state.autosave = true;
     persist();
     render();
@@ -6616,57 +6943,75 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     return renderGame();
   }
 
+
+  function renderTitle1931Message() {
+    return `
+      <section class="title-preview-band title-preview-1931" aria-live="polite">
+        <div class="title-preview-copy">
+          <div class="title-preview-line title-preview-1931-line">致我的妹妹：露西·布莱克，她的笑容停留在1931年</div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderTitleHotspots(roles, viewBox, label = "角色选择热区") {
+    if (!roles.length) return "";
+    return `<svg class="painting-overlay" viewBox="${viewBox}" role="img" aria-label="${label}">
+      ${roles
+        .map((role) => {
+          const hotspot = role.paintingHotspot;
+          if (!hotspot) return "";
+          const active = titlePreviewRoleId === role.id;
+          const outlinePath = hotspot.outlinePath || hotspot.points || "";
+          const hitPath = hotspot.hitPath || hotspot.points || outlinePath;
+          return `
+            <g class="painting-role ${role.startEnabled ? "pc" : "npc"} ${active ? "active" : ""}">
+              <polygon
+                class="painting-hitbox ${role.startEnabled ? "pc" : "npc"} ${active ? "active" : ""}"
+                data-action="pick-role"
+                data-role="${role.id}"
+                data-title-hotspot="true"
+                tabindex="0"
+                focusable="true"
+                role="button"
+                aria-label="查看 ${role.name}${role.startEnabled ? " 线路介绍" : " 档案"}"
+                points="${hitPath}"
+              >
+                <title>${role.name}${role.startEnabled ? "" : "（仅供展示）"}</title>
+              </polygon>
+              <polygon
+                class="painting-outline ${role.startEnabled ? "pc" : "npc"} ${active ? "active" : ""}"
+                aria-hidden="true"
+                focusable="false"
+                points="${outlinePath}"
+              ></polygon>
+            </g>
+          `;
+        })
+        .join("")}
+    </svg>`;
+  }
+
   function renderTitle() {
-    const roles = listPresentationRoles();
-    const groupImage = TITLE_PRESENTATION.groupImage || "";
+    const meta = loadMeta();
+    const truthTitleMode = !!meta.titleTruthMode;
+    const roles = listPresentationRoles(truthTitleMode ? "truth" : "normal");
+    const groupImage = truthTitleMode ? (TITLE_PRESENTATION.truthGroupImage || TITLE_PRESENTATION.groupImage || "") : (TITLE_PRESENTATION.groupImage || "");
     const viewBox = TITLE_PRESENTATION.viewBox || "0 0 3840 1648";
     const previewStyle = titlePreviewCssVars();
     return `
-      <section class="frame title-shell">
+      <section class="frame title-shell ${truthTitleMode ? "title-shell-1931" : ""}">
         <section class="title-painting-shell" data-title-shell>
           <div class="painting-copy title-copy">
-            <h1>牧羊人疗养院</h1>
+            <h1 class="${truthTitleMode ? "truth-title-awakened" : ""}" data-action="manual-unlock-truth" role="button" tabindex="0">${truthTitleMode ? "牧羊人疗养院-1931" : "牧羊人疗养院"}</h1>
           </div>
           <div class="painting-stage ${titlePreviewRoleId ? "has-preview" : ""}" style="${previewStyle}">
-            <img class="painting-image" src="${groupImage}" alt="牧羊人疗养院角色合影" />
-            <svg class="painting-overlay" viewBox="${viewBox}" role="img" aria-label="角色选择热区">
-              ${roles
-                .map((role) => {
-                  const hotspot = role.paintingHotspot;
-                  if (!hotspot) return "";
-                  const active = titlePreviewRoleId === role.id;
-                  const outlinePath = hotspot.outlinePath || hotspot.points || "";
-                  const hitPath = hotspot.hitPath || hotspot.points || outlinePath;
-                  return `
-                    <g class="painting-role ${role.startEnabled ? "pc" : "npc"} ${active ? "active" : ""}">
-                      <polygon
-                        class="painting-hitbox ${role.startEnabled ? "pc" : "npc"} ${active ? "active" : ""}"
-                        data-action="pick-role"
-                        data-role="${role.id}"
-                        data-title-hotspot="true"
-                        tabindex="0"
-                        focusable="true"
-                        role="button"
-                        aria-label="查看 ${role.name}${role.startEnabled ? " 线路介绍" : " 档案"}"
-                        points="${hitPath}"
-                      >
-                        <title>${role.name}${role.startEnabled ? "" : "（仅供展示）"}</title>
-                      </polygon>
-                      <polygon
-                        class="painting-outline ${role.startEnabled ? "pc" : "npc"} ${active ? "active" : ""}"
-                        aria-hidden="true"
-                        focusable="false"
-                        points="${outlinePath}"
-                      ></polygon>
-                    </g>
-                  `;
-                })
-                .join("")}
-            </svg>
+            <img class="painting-image" src="${groupImage}" alt="${truthTitleMode ? "牧羊人疗养院 1931 合影" : "牧羊人疗养院角色合影"}" />
+            ${renderTitleHotspots(roles, viewBox, truthTitleMode ? "1931 真相人物热区" : "角色选择热区")}
             ${renderTitleHoverBadge()}
           </div>
-          ${renderTitlePreviewBand()}
-          ${renderTruthRouteEntry("title")}
+          ${truthTitleMode && !titlePreviewRoleId ? renderTitle1931Message() : renderTitlePreviewBand()}
+          ${truthTitleMode ? renderTruthRouteEntry("title") : ""}
         </section>
       </section>
     `;
@@ -6719,6 +7064,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
               <h3>入口功能</h3>
               <div class="control-stack intro-side-actions">
                 <button class="btn" data-action="resume" ${saved?.selectedRole ? "" : "disabled"}>继续上次进度</button>
+                <button class="btn" data-action="open-save">手动读取存档</button>
                 <button class="btn" data-action="archive">查看角色档案</button>
               </div>
             </section>
@@ -6763,15 +7109,17 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         <div class="archive-grid">
           ${Object.values(ROLE_DEFS)
             .map((role) => {
-              const unlocked = !!state.archive[role.id] || meta.completedRoles.includes(role.id);
+              const completed = meta.completedRoles.includes(role.id);
+              const unlocked = !!state.archive[role.id] || completed;
               return `
-                <article class="panel archive-card ${unlocked ? "" : "locked"}">
+                <article class="panel archive-card ${unlocked ? "" : "locked"} ${completed ? "completed" : ""}">
                   <h2>${role.name}</h2>
                   <div class="archive-meta">${role.publicRole} · ${role.startRoom}</div>
                   <p>${unlocked ? role.archive.truth : role.dossier}</p>
                   <div class="detail-line"><strong>公开背景</strong><span>${role.background}</span></div>
                   <div class="detail-line"><strong>秘密摘要</strong><span>${role.secretHint}</span></div>
                   <div class="detail-line"><strong>隐藏条目</strong><span>${unlocked ? `${role.archive.role} / ${role.archive.ability}` : "通关后解锁"}</span></div>
+                  ${unlocked ? renderEndingGallery(role.id) : ""}
                 </article>
               `;
             })
@@ -6784,35 +7132,94 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     `;
   }
 
+  function renderTruthBlock(block) {
+    if (!block) return "";
+    const kind = block.kind || "paragraph";
+    const text = escapeHtml(block.text || "");
+    if (kind === "label") return `<div class="truth-material-label">${text}</div>`;
+    if (kind === "meta") return `<div class="truth-material-meta">${text}</div>`;
+    return `<p>${text}</p>`;
+  }
+
+  function renderTruthIndex() {
+    const meta = loadMeta();
+    const collections = truthCollections();
+    return `
+      <section class="frame page-shell truth-route-shell truth-folder-index-shell">
+        <div class="topbar">
+          <div>
+            <h1>${TRUTH_ROUTE.title || "埃莉诺的文件夹"}</h1>
+            <p>${TRUTH_ROUTE.subtitle || "上帝视角真相路线"} · ${escapeHtml(TRUTH_ROUTE.source || "剧本剧情真相.docx")}</p>
+          </div>
+          <div class="title-tags">
+            <span class="tag-pill">${collections.length} 份材料</span>
+            <span class="tag-pill">${meta.truthRouteCompleted ? "已读完" : "可自由阅读"}</span>
+          </div>
+        </div>
+        <section class="panel truth-folder-index">
+          <div class="truth-material-kicker">材料选择</div>
+          <h2>埃莉诺的文件夹</h2>
+          <p class="truth-folder-lead">这些材料来自《剧本剧情真相》的全部正文。选择任意文件开始阅读，阅读顺序不再由系统强制安排。</p>
+          <div class="truth-folder-grid">
+            ${collections.map((collection) => collection.headingOnly
+              ? `
+                <div class="truth-folder-section-title truth-folder-section-title-${collection.type || "folder"}">
+                  <span>${escapeHtml(collection.label || "分类")}</span>
+                  <strong>${escapeHtml(collection.title || "未命名分类")}</strong>
+                  ${collection.sectionText ? `<p>${escapeHtml(collection.sectionText)}</p>` : ""}
+                </div>
+              `
+              : `
+                <button class="truth-folder-card truth-folder-card-${collection.type || "folder"}" data-action="open-truth-collection" data-collection="${escapeHtml(collection.id)}">
+                  <span class="truth-folder-card-label">${escapeHtml(collection.label || "文件")}</span>
+                  <strong>${escapeHtml(collection.title || "未命名材料")}</strong>
+                  <span>${escapeHtml(collection.summary || "")}</span>
+                  <em>${Array.isArray(collection.pages) ? collection.pages.length : 0} 页</em>
+                </button>
+              `).join("")}
+          </div>
+          <div class="footer-actions">
+            <button class="btn primary" data-action="complete-truth">${meta.truthRouteCompleted ? "已完成真相路线" : "标记为已读完"}</button>
+            <button class="btn" data-action="archive">查看档案</button>
+            <button class="btn" data-action="back-title">返回标题</button>
+          </div>
+        </section>
+      </section>
+    `;
+  }
+
   function renderTruth() {
     const meta = loadMeta();
-    const pages = Array.isArray(TRUTH_ROUTE.pages) ? TRUTH_ROUTE.pages : [];
-    const epilogue = Array.isArray(TRUTH_ROUTE.epilogue) ? TRUTH_ROUTE.epilogue : [];
-    const total = Math.max(1, truthRoutePageCount());
+    const collection = truthCollectionById();
+    if (!collection) return renderTruthIndex();
+    const pages = Array.isArray(collection.pages) ? collection.pages : [];
+    const total = Math.max(1, pages.length);
     const pageIndex = clamp(Number(state.truthPageIndex || 0), 0, total - 1);
-    const isEpilogue = pageIndex >= pages.length;
-    const page = isEpilogue
-      ? { heading: "尾声", paragraphs: epilogue }
-      : pages[pageIndex] || { heading: "记录缺失", paragraphs: ["埃莉诺的记录页尚未写入。"] };
+    const page = pages[pageIndex] || { heading: collection.title, blocks: [] };
+    const blocks = Array.isArray(page.blocks) ? page.blocks : [];
+    const pageType = collection.type || "folder";
+    const isFirst = pageIndex <= 0;
     const isLast = pageIndex >= total - 1;
     return `
       <section class="frame page-shell truth-route-shell">
         <div class="topbar">
           <div>
-            <h1>${TRUTH_ROUTE.title || "埃莉诺的记录"}</h1>
-            <p>${TRUTH_ROUTE.subtitle || "上帝视角真相路线"}</p>
+            <h1>${TRUTH_ROUTE.title || "埃莉诺的文件夹"}</h1>
+            <p>${escapeHtml(collection.title || "")}</p>
           </div>
           <div class="title-tags">
             <span class="tag-pill">第 ${pageIndex + 1} / ${total} 页</span>
-            <span class="tag-pill">${meta.truthRouteCompleted ? "已读完" : "阅读中"}</span>
+            <span class="tag-pill">${meta.truthRouteCompleted ? "已读完" : escapeHtml(collection.label || "阅读中")}</span>
           </div>
         </div>
-        <section class="panel truth-route-panel">
-          <div class="eyebrow">${isEpilogue ? "尾声" : "埃莉诺记录"}</div>
-          <h2>${escapeHtml(page.heading || "")}</h2>
-          ${(page.paragraphs || []).map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}
+        <section class="panel truth-route-panel truth-material truth-material-${pageType}">
+          <div class="truth-material-kicker">${escapeHtml(collection.label || "文件")}</div>
+          <h2>${escapeHtml(page.heading || collection.title || "")}</h2>
+          <div class="truth-material-body">${blocks.map(renderTruthBlock).join("")}</div>
           <div class="footer-actions">
-            <button class="btn primary" data-action="continue-truth">${isLast ? "完成真相路线" : "继续"}</button>
+            <button class="btn" data-action="truth-prev" ${isFirst ? "disabled" : ""}>上一页</button>
+            <button class="btn primary" data-action="continue-truth" ${isLast ? "disabled" : ""}>下一页</button>
+            <button class="btn" data-action="truth-index">材料选择</button>
             <button class="btn" data-action="archive">查看档案</button>
             <button class="btn" data-action="back-title">返回标题</button>
           </div>
@@ -6953,6 +7360,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
           <section class="panel rail-card">
             <div class="panel-headline">系统功能</div>
             <div class="control-stack">
+              <button class="btn" data-action="undo-choice" ${state.undoStack?.length ? "" : "disabled"}>撤回上一步</button>
               <button class="btn" data-action="toggle-fast">${state.fast ? "关闭快进摘要" : "开启快进摘要"}</button>
               <button class="btn" data-action="open-log">回看日志</button>
               <button class="btn" data-action="open-save">手动存档</button>
@@ -6985,13 +7393,38 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
   function describeVoteReason(voterId, playerId) {
     if (voterId === "player") return { tone: "neutral", text: "这是你在 4.4 亲手写下的票。", score: 3 };
     const relation = clamp(Number(state.relations?.[voterId] || 0), RELATION_MIN, RELATION_MAX);
+    const confused = !hasKarlExposedBeforeVote(state) && relation >= -15 && relation <= 15;
     if (relation <= -16) {
       return { tone: "fail", text: `${ENTITIES[voterId]?.short || voterId} 对你的关系是 ${relation}，已低于 -16，因此必定投你。`, score: 1 };
     }
     if (relation >= 16) {
       return { tone: "pass", text: `${ENTITIES[voterId]?.short || voterId} 对你的关系是 ${relation}，已高于 16，因此会跟随你的票型。`, score: 1 };
     }
-    return { tone: "neutral", text: `${ENTITIES[voterId]?.short || voterId} 处于中立带（${relation}），这一票由当前怀疑与剧情站位决定。`, score: 2 };
+    if (confused) {
+      const weightText = relation >= -15 && relation <= -6
+        ? "投你的随机权重提高 50%"
+        : relation >= -5 && relation <= -1
+          ? "投你的随机权重提高 25%"
+          : relation >= 1 && relation <= 5
+            ? "投你的随机权重降低 25%"
+            : relation >= 6 && relation <= 15
+              ? "投你的随机权重降低 50%"
+              : "投你的随机权重不变";
+      return { tone: relation < 0 ? "fail" : relation > 0 ? "pass" : "neutral", text: `${ENTITIES[voterId]?.short || voterId} 对你的关系是 ${relation}，但投票前卡尔尚未被真正揭露，因此陷入迷茫乱投；${weightText}。`, score: 2 };
+    }
+    if (relation >= -15 && relation <= -6) {
+      return { tone: "fail", text: `${ENTITIES[voterId]?.short || voterId} 对你的关系是 ${relation}，敌意让投你的权重提高 50%，再与怀疑和剧情站位合并判定。`, score: 2 };
+    }
+    if (relation >= -5 && relation <= -1) {
+      return { tone: "fail", text: `${ENTITIES[voterId]?.short || voterId} 对你的关系是 ${relation}，轻微敌意让投你的权重提高 25%，再与怀疑和剧情站位合并判定。`, score: 2 };
+    }
+    if (relation >= 1 && relation <= 5) {
+      return { tone: "pass", text: `${ENTITIES[voterId]?.short || voterId} 对你的关系是 ${relation}，轻微信任让投你的权重降低 25%，再与怀疑和剧情站位合并判定。`, score: 2 };
+    }
+    if (relation >= 6 && relation <= 15) {
+      return { tone: "pass", text: `${ENTITIES[voterId]?.short || voterId} 对你的关系是 ${relation}，信任让投你的权重降低 50%，再与怀疑和剧情站位合并判定。`, score: 2 };
+    }
+    return { tone: "neutral", text: `${ENTITIES[voterId]?.short || voterId} 处于中立点（${relation}），投你权重不变，由当前怀疑与剧情站位决定。`, score: 2 };
   }
 
   function buildVoteInsight(role) {
@@ -7017,9 +7450,15 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     const summary = {
       playerBallot: state.voteLedger?.player ? 1 : 0,
       hostileLocks: 0,
+      hostileStrongWeights: 0,
+      hostileLightWeights: 0,
+      trustLightReductions: 0,
+      trustStrongReductions: 0,
       followVotes: 0,
       neutralReads: 0,
+      confusedReads: 0,
     };
+    const karlExposed = hasKarlExposedBeforeVote(state);
     Object.keys(state.voteLedger || {}).forEach((voterId) => {
       if (voterId === "player") return;
       const relation = clamp(Number(state.relations?.[voterId] || 0), RELATION_MIN, RELATION_MAX);
@@ -7028,7 +7467,18 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       } else if (relation >= 16) {
         summary.followVotes += 1;
       } else {
-        summary.neutralReads += 1;
+        if (!karlExposed && relation >= -15 && relation <= 15) summary.confusedReads += 1;
+        if (relation >= -15 && relation <= -6) {
+          summary.hostileStrongWeights += 1;
+        } else if (relation >= -5 && relation <= -1) {
+          summary.hostileLightWeights += 1;
+        } else if (relation >= 1 && relation <= 5) {
+          summary.trustLightReductions += 1;
+        } else if (relation >= 6 && relation <= 15) {
+          summary.trustStrongReductions += 1;
+        } else {
+          summary.neutralReads += 1;
+        }
       }
     });
     const topTargetId = Object.entries(state.voteTally || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
@@ -7039,6 +7489,8 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       : "无人";
     const summaryText = state.exiledByVote
       ? `至少有 ${summary.hostileLocks} 张票被关系直接锁到你身上，剩下的中立判断也没能把局面拉回来。`
+      : summary.confusedReads > 0
+        ? `卡尔尚未被真正揭露，${summary.confusedReads} 名中间关系者陷入迷茫乱投，票面被随机和关系权重共同推向了 ${topTargetLabel}。`
       : summary.followVotes > summary.hostileLocks
         ? `高信任跟票占了上风，你在 4.4 铺下的站位真正影响了票面。`
         : summary.hostileLocks > 0
@@ -7049,8 +7501,13 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       items: [
         { tone: "neutral", label: "你的票", value: summary.playerBallot, detail: "4.4 亲手写下" },
         { tone: "fail", label: "强敌意锁票", value: summary.hostileLocks, detail: "<= -16 必投你" },
+        { tone: "fail", label: "强敌意加权", value: summary.hostileStrongWeights, detail: "-15 ~ -6 投你 +50%" },
+        { tone: "fail", label: "轻敌意加权", value: summary.hostileLightWeights, detail: "-5 ~ -1 投你 +25%" },
+        { tone: "neutral", label: "迷茫乱投", value: summary.confusedReads, detail: "未揭露卡尔时随机" },
         { tone: "pass", label: "高信任跟票", value: summary.followVotes, detail: ">= 16 跟随你的票型" },
-        { tone: "neutral", label: "中立带判定", value: summary.neutralReads, detail: "-15 ~ 15 走怀疑逻辑" },
+        { tone: "pass", label: "轻信任减权", value: summary.trustLightReductions, detail: "1 ~ 5 投你 -25%" },
+        { tone: "pass", label: "强信任减权", value: summary.trustStrongReductions, detail: "6 ~ 15 投你 -50%" },
+        { tone: "neutral", label: "中立判定", value: summary.neutralReads, detail: "0 权重不变" },
       ],
     };
   }
@@ -7072,68 +7529,58 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     `;
   }
 
+  function renderVoteExileSilhouette(role, deathLabels = []) {
+    const playerId = role.id;
+    const primaryDeathId = (state.voteDeaths || [])[0] || Object.entries(state.voteTally || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    const primaryLabel = primaryDeathId
+      ? primaryDeathId === playerId
+        ? "\u4f60"
+        : ENTITIES[primaryDeathId]?.short || primaryDeathId
+      : "\u65e0\u4eba";
+    const deathText = deathLabels.length ? deathLabels.join(" / ") : primaryLabel;
+    return `
+      <div class="vote-exile-visual ${state.exiledByVote ? "is-player" : ""}">
+        <div class="vote-exile-silhouette" aria-hidden="true">
+          <span></span>
+        </div>
+        <div class="vote-exile-caption">
+          <strong>${escapeHtml(primaryLabel)}</strong>
+          <span>${state.exiledByVote ? "\u73a9\u5bb6\u88ab\u653e\u9010" : `\u653e\u9010\u540d\u5355\uff1a${escapeHtml(deathText)}`}</span>
+        </div>
+      </div>
+    `;
+  }
+
   function renderVoteRevealPanel(role) {
-    if (role.id === "anjie") {
-      const playerId = role.id;
-      const deathLabels = (state.voteDeaths || []).map((id) => id === playerId ? "你" : ENTITIES[id]?.short || id);
-      const tallyEntries = Object.entries(state.voteTally || {}).sort((a, b) => b[1] - a[1]);
-      const topCount = tallyEntries[0]?.[1] || 0;
-      const topVotes = tallyEntries.filter(([, count]) => count === topCount).map(([id]) => id === playerId ? "你" : ENTITIES[id]?.short || id);
-      const voteInsightSummary = buildVoteInsightSummary(role);
-      const playerTarget = state.voteLedger?.player;
-      const hostileCount = voteInsightSummary.items[1]?.value || 0;
-      const followCount = voteInsightSummary.items[2]?.value || 0;
-      const neutralCount = voteInsightSummary.items[3]?.value || 0;
-      const playerTargetLabel = !playerTarget
-        ? "未填写"
-        : playerTarget === playerId
-          ? "你"
-          : playerTarget === "abstain"
-            ? "弃权"
-            : ENTITIES[playerTarget]?.short || playerTarget;
-      const compactInsight = state.exiledByVote
-        ? "敌意先一步锁死了局面。"
-        : followCount > hostileCount
-          ? "你先前铺下的站位，真的改了票面。"
-          : hostileCount > 0
-            ? "敌意已经把票面推偏了。"
-            : "真正决定结果的是中立者的迟疑。";
-      const compactSummary = [
-        `你的票：${playerTargetLabel}`,
-        `票型：锁 ${hostileCount} / 跟 ${followCount} / 中 ${neutralCount}`,
-        `结果：${deathLabels.join(" / ") || "无人"}被推到最亮的位置`,
-        `余波：${compactInsight}`,
-      ].filter(Boolean).join("；");
-      return `
-        <section class="panel narrative-panel vote-reveal-panel">
-          <div class="notice-box result-summary ${state.exiledByVote ? "heavy" : ""}">
-            <strong>投票结果</strong>
-            <span>${state.exiledByVote ? "最高票落在你身上。你没有机会进入第五小时。" : `最高票者：${topVotes.join(" / ")}。`}${compactSummary ? ` ${escapeHtml(compactSummary)}` : ""}</span>
-          </div>
-          <div class="footer-actions">
-            <button class="btn primary" data-action="continue-slot">${state.exiledByVote ? "结算结局" : "进入 5.1"}</button>
-            <button class="btn" data-action="open-log">查看日志</button>
-          </div>
-        </section>
-      `;
-    }
     const ledgerEntries = Object.entries(state.voteLedger || {});
-    const deathLabels = (state.voteDeaths || []).map((id) => id === role.id ? "你" : ENTITIES[id]?.short || id);
+    const deathLabels = (state.voteDeaths || []).map((id) => id === role.id ? "\u4f60" : ENTITIES[id]?.short || id);
     const playerId = role.id;
     const tallyEntries = Object.entries(state.voteTally || {}).sort((a, b) => b[1] - a[1]);
     const topCount = tallyEntries[0]?.[1] || 0;
-    const topVotes = tallyEntries.filter(([, count]) => count === topCount).map(([id]) => id === playerId ? "你" : ENTITIES[id]?.short || id);
+    const topVotes = tallyEntries.filter(([, count]) => count === topCount).map(([id]) => id === playerId ? "\u4f60" : ENTITIES[id]?.short || id);
+    const totalVotes = ledgerEntries.filter(([, targetId]) => targetId && targetId !== "abstain").length;
+    const abstainVotes = ledgerEntries.filter(([, targetId]) => targetId === "abstain").length;
+    const playerVotes = Number(state.voteTally?.[playerId] || 0);
     const voteInsight = buildVoteInsight(role);
     const voteInsightSummary = buildVoteInsightSummary(role);
     return `
       <section class="panel narrative-panel vote-reveal-panel">
         <div class="notice-box result-summary ${state.exiledByVote ? "heavy" : ""}">
-          <strong>投票结果</strong>
-          <span>${state.exiledByVote ? "最高票落在你身上。你没有机会进入第五小时。" : `最高票者：${topVotes.join(" / ")}。`}</span>
+          <strong>\u6295\u7968\u7ed3\u679c</strong>
+          <span>${state.exiledByVote ? "\u6700\u9ad8\u7968\u843d\u5728\u4f60\u8eab\u4e0a\u3002\u4f60\u6ca1\u6709\u673a\u4f1a\u8fdb\u5165\u7b2c\u4e94\u5c0f\u65f6\u3002" : `\u6700\u9ad8\u7968\u8005\uff1a${topVotes.join(" / ")}\u3002`}</span>
+        </div>
+        <div class="vote-reveal-hero">
+          ${renderVoteExileSilhouette(role, deathLabels)}
+          <div class="vote-stat-board">
+            <div class="vote-stat"><span>\u6709\u6548\u7968</span><strong>${totalVotes}</strong><em>\u5f03\u6743 ${abstainVotes}</em></div>
+            <div class="vote-stat ${state.exiledByVote ? "fail" : ""}"><span>\u6295\u5411\u4f60</span><strong>${playerVotes}</strong><em>${state.exiledByVote ? "\u653e\u9010\u6210\u7acb" : "\u4ecd\u53ef\u524d\u8fdb"}</em></div>
+            <div class="vote-stat"><span>\u6700\u9ad8\u7968</span><strong>${topCount}</strong><em>${escapeHtml(topVotes.join(" / ") || "\u65e0")}</em></div>
+            <div class="vote-stat"><span>\u653e\u9010\u6570</span><strong>${deathLabels.length}</strong><em>${escapeHtml(deathLabels.join(" / ") || "\u65e0\u4eba")}</em></div>
+          </div>
         </div>
         <div class="notice-box">
-          <strong>票型摘要</strong>
-          <span>${state.exiledByVote ? "你被推成最高票。放逐已经成立。" : `并列最高将一起死亡。当前最高票：${topVotes.join(" / ")}。`}</span>
+          <strong>\u7968\u578b\u6458\u8981</strong>
+          <span>${state.exiledByVote ? "\u4f60\u88ab\u63a8\u6210\u6700\u9ad8\u7968\u3002\u653e\u9010\u5df2\u7ecf\u6210\u7acb\u3002" : `\u5e76\u5217\u6700\u9ad8\u5c06\u4e00\u8d77\u6b7b\u4ea1\u3002\u5f53\u524d\u6700\u9ad8\u7968\uff1a${topVotes.join(" / ")}\u3002`}</span>
           <div class="vote-summary-grid">
             ${voteInsightSummary.items.map((item) => `
               <div class="vote-summary-item ${item.tone}">
@@ -7146,30 +7593,30 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
           <p class="vote-summary-text">${voteInsightSummary.summaryText}</p>
         </div>
         <div class="vote-tally">
-          <div class="clue-item"><strong>死亡名单</strong> · ${deathLabels.join(" / ") || "无"}</div>
+          <div class="clue-item"><strong>\u6b7b\u4ea1\u540d\u5355</strong> \u00b7 ${deathLabels.join(" / ") || "\u65e0"}</div>
         </div>
         ${renderVoteInsight(voteInsight)}
         <div class="vote-ledger">
           ${ledgerEntries.map(([voterId, targetId]) => {
-            const voterName = voterId === "player" ? "你" : ENTITIES[voterId]?.short || voterId;
-            const targetName = targetId === playerId ? "你" : targetId === "abstain" ? "弃权" : ENTITIES[targetId]?.short || targetId;
-            return `<div class="relation-item"><strong>${voterName}</strong><span>投给 ${targetName}</span></div>`;
+            const voterName = voterId === "player" ? "\u4f60" : ENTITIES[voterId]?.short || voterId;
+            const targetName = targetId === playerId ? "\u4f60" : targetId === "abstain" ? "\u5f03\u6743" : ENTITIES[targetId]?.short || targetId;
+            return `<div class="relation-item"><strong>${voterName}</strong><span>\u6295\u7ed9 ${targetName}</span></div>`;
           }).join("")}
         </div>
         <div class="vote-tally">
           ${Object.entries(state.voteTally || {}).map(([targetId, count]) => {
-            const targetName = targetId === playerId ? "你" : ENTITIES[targetId]?.short || targetId;
-            return `<div class="clue-item"><strong>${targetName}</strong> · ${count} 票</div>`;
+            const targetName = targetId === playerId ? "\u4f60" : ENTITIES[targetId]?.short || targetId;
+            return `<div class="clue-item"><strong>${targetName}</strong> \u00b7 ${count} \u7968</div>`;
           }).join("")}
         </div>
         <div class="story-text">
-          <p>${state.exiledByVote ? "你亲眼看着票纸在石桌上叠出你的名字。争辩没有再继续，疗养院也不再给你下一段时间。" : `石室里没有人能装作意外。${deathLabels.join(" / ")}被推到了最亮的位置，接下来所有人都只能带着这个结果往前走。`}</p>
-          <p>${state.exiledByVote ? "你的路线在这里被票型截断。后面的觉醒、追逐与白门，都不会再由你亲自经历。" : "活下来的人会把刚才的票向带进第五小时。信任、怨恨和后悔都不会被投票清空，只会被放大。"}</p>
-          <p>${state.exiledByVote ? "疗养院已经替你选了结局。" : "投票已经把下一小时的敌友重新洗过一遍。"} </p>
+          <p>${state.exiledByVote ? "\u4f60\u4eb2\u773c\u770b\u7740\u7968\u7eb8\u5728\u77f3\u684c\u4e0a\u53e0\u51fa\u4f60\u7684\u540d\u5b57\u3002\u4e89\u8fa9\u6ca1\u6709\u518d\u7ee7\u7eed\uff0c\u7597\u517b\u9662\u4e5f\u4e0d\u518d\u7ed9\u4f60\u4e0b\u4e00\u6bb5\u65f6\u95f4\u3002" : `\u77f3\u5ba4\u91cc\u6ca1\u6709\u4eba\u80fd\u88c5\u4f5c\u610f\u5916\u3002${deathLabels.join(" / ") || "\u65e0\u4eba"}\u88ab\u63a8\u5230\u4e86\u6700\u4eae\u7684\u4f4d\u7f6e\uff0c\u63a5\u4e0b\u6765\u6240\u6709\u4eba\u90fd\u53ea\u80fd\u5e26\u7740\u8fd9\u4e2a\u7ed3\u679c\u5f80\u524d\u8d70\u3002`}</p>
+          <p>${state.exiledByVote ? "\u4f60\u7684\u8def\u7ebf\u5728\u8fd9\u91cc\u88ab\u7968\u578b\u622a\u65ad\u3002\u540e\u9762\u7684\u89c9\u9192\u3001\u8ffd\u9010\u4e0e\u767d\u95e8\uff0c\u90fd\u4e0d\u4f1a\u518d\u7531\u4f60\u4eb2\u81ea\u7ecf\u5386\u3002" : "\u6d3b\u4e0b\u6765\u7684\u4eba\u4f1a\u628a\u521a\u624d\u7684\u7968\u5411\u5e26\u8fdb\u7b2c\u4e94\u5c0f\u65f6\u3002\u4fe1\u4efb\u3001\u6028\u6068\u548c\u540e\u6094\u90fd\u4e0d\u4f1a\u88ab\u6295\u7968\u6e05\u7a7a\uff0c\u53ea\u4f1a\u88ab\u653e\u5927\u3002"}</p>
+          <p>${state.exiledByVote ? "\u7597\u517b\u9662\u5df2\u7ecf\u66ff\u4f60\u9009\u4e86\u7ed3\u5c40\u3002" : "\u6295\u7968\u5df2\u7ecf\u628a\u4e0b\u4e00\u5c0f\u65f6\u7684\u654c\u53cb\u91cd\u65b0\u6d17\u8fc7\u4e00\u904d\u3002"}</p>
         </div>
         <div class="footer-actions">
-          <button class="btn primary" data-action="continue-slot">${state.exiledByVote ? "结算结局" : "进入 5.1"}</button>
-          <button class="btn" data-action="open-log">查看日志</button>
+          <button class="btn primary" data-action="continue-slot">${state.exiledByVote ? "\u7ed3\u7b97\u7ed3\u5c40" : "\u8fdb\u5165 5.1"}</button>
+          <button class="btn" data-action="open-log">\u67e5\u770b\u65e5\u5fd7</button>
         </div>
       </section>
     `;
@@ -7587,7 +8034,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
             <h2>尾声补充</h2>
             <p>${role.archive.truth}</p>
             <div class="detail-line"><strong>全局进度</strong><span>已完成 ${meta.completedRoles.length} / ${PLAYABLE_ROLE_IDS.length} 名主角线路</span></div>
-            <div class="detail-line"><strong>真相路线</strong><span>${meta.truthRouteUnlocked ? "埃莉诺的记录已解锁" : "完成 6 名主角线路后解锁"}</span></div>
+            <div class="detail-line"><strong>真相路线</strong><span>${meta.truthRouteUnlocked ? "埃莉诺文件夹已解锁" : "完成 6 名主角线路后解锁"}</span></div>
             <div class="footer-actions">
               ${meta.truthRouteUnlocked ? `<button class="btn primary" data-action="open-truth">${meta.truthRouteCompleted ? "重读真相路线" : "进入真相路线"}</button>` : ""}
               <button class="btn primary" data-action="archive">查看全部档案</button>
@@ -7817,11 +8264,26 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         persist();
         render();
         break;
+      case "manual-unlock-truth":
+        manualUnlockTruthRoute();
+        break;
       case "open-truth":
         openTruthRoute();
         break;
+      case "open-truth-collection":
+        openTruthCollection(button.dataset.collection);
+        break;
+      case "truth-index":
+        backTruthIndex();
+        break;
+      case "truth-prev":
+        stepTruthPage(-1);
+        break;
       case "continue-truth":
         continueTruthRoute();
+        break;
+      case "complete-truth":
+        completeTruthRoute();
         break;
       case "back-title":
         resetToTitle();
@@ -7852,6 +8314,14 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         break;
       case "continue-slot":
         continueSlot();
+        break;
+      case "undo-choice":
+        undoLastChoice();
+        break;
+      case "view-ending-gallery":
+        state.galleryEnding = { roleId: button.dataset.role, key: button.dataset.ending };
+        persist();
+        render();
         break;
       case "open-log":
         state.overlay = "log";

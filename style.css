@@ -226,6 +226,16 @@ button {
   letter-spacing: -0.05em;
   color: #1d1712;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  transition: color 220ms ease, text-shadow 220ms ease, filter 220ms ease;
+}
+
+.title-copy h1.truth-title-awakened {
+  color: rgba(188, 26, 31, 0.96);
+  text-shadow:
+    0 0 16px rgba(188, 26, 31, 0.42),
+    0 14px 38px rgba(0, 0, 0, 0.38);
+  filter: saturate(1.25);
 }
 
 .title-actions {
@@ -611,6 +621,49 @@ button {
   line-height: 1.68;
 }
 
+.ending-gallery {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.ending-gallery-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ending-gallery-button {
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.ending-gallery-button.active {
+  border-color: rgba(93, 127, 174, 0.38);
+  background: rgba(93, 127, 174, 0.12);
+}
+
+.ending-gallery-detail {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(93, 127, 174, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.ending-gallery-detail h3,
+.ending-gallery-detail p {
+  margin: 0;
+}
+
+.ending-gallery-detail p {
+  color: var(--muted);
+  line-height: 1.76;
+}
+
 .detail-panel {
   display: grid;
   gap: 12px;
@@ -828,13 +881,116 @@ button {
   margin: 0 24px 24px;
   display: grid;
   gap: 14px;
-  max-width: 980px;
+  max-width: 1040px;
+  overflow: hidden;
+}
+
+.truth-material {
+  position: relative;
+  border-radius: 8px;
+}
+
+.truth-material::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.truth-material > * {
+  position: relative;
+  z-index: 1;
+}
+
+.truth-material-kicker {
+  width: fit-content;
+  padding: 5px 10px;
+  border: 1px solid rgba(31, 35, 43, 0.16);
+  color: rgba(62, 50, 43, 0.72);
+  background: rgba(255, 255, 255, 0.42);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.truth-material-body {
+  display: grid;
+  gap: 12px;
 }
 
 .truth-route-panel p {
   margin: 0;
   line-height: 1.9;
   font-size: 1.02rem;
+}
+
+.truth-material-label {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(29, 35, 43, 0.14);
+  color: rgba(49, 43, 37, 0.78);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.truth-material-meta {
+  padding: 12px 14px;
+  border: 1px solid rgba(80, 65, 44, 0.22);
+  background: rgba(255, 255, 255, 0.45);
+  color: rgba(64, 52, 44, 0.82);
+  line-height: 1.75;
+}
+
+.truth-material-folder {
+  background:
+    linear-gradient(90deg, rgba(137, 43, 43, 0.1), transparent 26%),
+    linear-gradient(180deg, rgba(250, 238, 204, 0.96), rgba(232, 212, 169, 0.92));
+}
+
+.truth-material-password {
+  background:
+    radial-gradient(circle at 20% 12%, rgba(126, 40, 33, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(238, 232, 210, 0.96), rgba(196, 203, 190, 0.9));
+  border-color: rgba(80, 91, 77, 0.24);
+}
+
+.truth-material-newspaper {
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.025) 0 1px, transparent 1px 8px),
+    linear-gradient(180deg, rgba(248, 248, 242, 0.98), rgba(221, 221, 211, 0.94));
+  filter: grayscale(0.18);
+}
+
+.truth-material-diary {
+  background:
+    linear-gradient(90deg, rgba(125, 68, 44, 0.16) 0 52px, rgba(125, 68, 44, 0.05) 52px 54px, transparent 54px),
+    repeating-linear-gradient(180deg, transparent 0 31px, rgba(80, 67, 58, 0.09) 31px 32px),
+    linear-gradient(180deg, rgba(255, 246, 222, 0.98), rgba(236, 220, 185, 0.94));
+}
+
+.truth-material-medical {
+  background:
+    linear-gradient(180deg, rgba(246, 249, 246, 0.98), rgba(221, 232, 226, 0.94));
+  border-color: rgba(74, 104, 94, 0.24);
+}
+
+.truth-material-ability {
+  color: rgba(238, 232, 218, 0.94);
+  background:
+    radial-gradient(circle at 82% 18%, rgba(191, 31, 35, 0.2), transparent 34%),
+    linear-gradient(180deg, rgba(40, 31, 32, 0.98), rgba(17, 18, 21, 0.97));
+}
+
+.truth-material-ability .truth-material-kicker,
+.truth-material-ability .truth-material-label,
+.truth-material-ability .truth-material-meta {
+  color: rgba(246, 230, 202, 0.88);
+  border-color: rgba(239, 202, 150, 0.22);
+  background: rgba(255, 244, 220, 0.08);
+}
+
+.truth-material-ability p {
+  color: rgba(245, 238, 226, 0.9);
 }
 
 @keyframes previewBandIn {
@@ -1860,6 +2016,107 @@ button {
   gap: 10px;
 }
 
+.vote-reveal-hero {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(260px, 1.25fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.vote-exile-visual {
+  min-height: 190px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(29, 35, 43, 0.14);
+  background:
+    radial-gradient(circle at 50% 36%, rgba(117, 41, 45, 0.22), transparent 42%),
+    linear-gradient(180deg, rgba(24, 22, 24, 0.94), rgba(44, 34, 36, 0.9));
+  color: #f3e7dc;
+}
+
+.vote-exile-visual.is-player {
+  border-color: rgba(166, 35, 40, 0.38);
+  box-shadow: inset 0 0 0 1px rgba(166, 35, 40, 0.2), 0 18px 42px rgba(60, 10, 13, 0.18);
+}
+
+.vote-exile-silhouette {
+  width: 96px;
+  height: 132px;
+  position: relative;
+  filter: drop-shadow(0 16px 18px rgba(0, 0, 0, 0.34));
+}
+
+.vote-exile-silhouette::before {
+  content: "";
+  position: absolute;
+  left: 29px;
+  top: 4px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #111216, #020204);
+}
+
+.vote-exile-silhouette span {
+  position: absolute;
+  left: 15px;
+  top: 42px;
+  width: 66px;
+  height: 82px;
+  border-radius: 44% 44% 18% 18%;
+  background: linear-gradient(180deg, #111216, #030305);
+}
+
+.vote-exile-caption {
+  display: grid;
+  gap: 4px;
+  text-align: center;
+}
+
+.vote-exile-caption strong {
+  font-size: 1.18rem;
+  color: #f7e1d4;
+}
+
+.vote-exile-caption span {
+  color: rgba(245, 226, 216, 0.74);
+  font-size: 0.88rem;
+}
+
+.vote-stat-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.vote-stat {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(93, 127, 174, 0.18);
+  background: rgba(93, 127, 174, 0.07);
+}
+
+.vote-stat.fail {
+  border-color: rgba(160, 88, 88, 0.26);
+  background: rgba(160, 88, 88, 0.08);
+}
+
+.vote-stat span,
+.vote-stat em {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: normal;
+}
+
+.vote-stat strong {
+  font-size: 1.5rem;
+}
+
 .vote-insight {
   display: grid;
   gap: 10px;
@@ -1970,6 +2227,29 @@ button {
 .archive-card.locked {
   opacity: 0.5;
   filter: grayscale(1);
+}
+
+.archive-card.completed {
+  border-color: rgba(189, 151, 73, 0.42);
+  background:
+    linear-gradient(180deg, rgba(255, 248, 228, 0.92), rgba(255, 255, 255, 0.88)),
+    var(--panel);
+  box-shadow: 0 16px 36px rgba(151, 112, 39, 0.12);
+}
+
+.archive-card.completed h2 {
+  color: #8a6421;
+}
+
+.ending-gallery-button.seen,
+.ending-gallery-button.active.seen {
+  border-color: rgba(189, 151, 73, 0.52);
+  background: rgba(225, 196, 121, 0.24);
+  color: #765719;
+}
+
+.ending-gallery-button.active {
+  box-shadow: inset 0 0 0 1px rgba(189, 151, 73, 0.32);
 }
 
 .ending-main p {
@@ -2113,6 +2393,11 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .vote-reveal-hero,
+  .vote-stat-board {
+    grid-template-columns: 1fr;
+  }
+
   .map-overlay p {
     max-width: 100%;
   }
@@ -2169,6 +2454,21 @@ button {
 }
 
 @media (max-width: 720px) {
+  .truth-route-panel {
+    margin: 0 14px 18px;
+  }
+
+  .truth-route-panel p {
+    font-size: 0.96rem;
+    line-height: 1.82;
+  }
+
+  .truth-material-diary {
+    background:
+      repeating-linear-gradient(180deg, transparent 0 31px, rgba(80, 67, 58, 0.08) 31px 32px),
+      linear-gradient(180deg, rgba(255, 246, 222, 0.98), rgba(236, 220, 185, 0.94));
+  }
+
   .app {
     padding: 10px;
   }
@@ -2362,4 +2662,254 @@ button {
     animation: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+
+.truth-folder-index {
+  margin: 0 24px 24px;
+  display: grid;
+  gap: 13px;
+  max-width: 1120px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(150, 42, 35, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(241, 229, 199, 0.96), rgba(219, 198, 158, 0.92));
+  overflow: hidden;
+}
+
+.truth-folder-lead {
+  margin: 0;
+  max-width: 760px;
+  color: rgba(61, 50, 42, 0.78);
+  line-height: 1.8;
+}
+
+.truth-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.truth-folder-card {
+  min-height: 132px;
+  padding: 13px 14px;
+  display: grid;
+  gap: 7px;
+  align-content: start;
+  border: 1px solid rgba(64, 48, 34, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 251, 235, 0.86), rgba(236, 223, 190, 0.78));
+  color: rgba(36, 30, 26, 0.9);
+  text-align: left;
+  box-shadow: 0 16px 32px rgba(39, 31, 24, 0.12);
+  cursor: pointer;
+}
+
+.truth-folder-card:hover,
+.truth-folder-card:focus-visible {
+  border-color: rgba(136, 33, 33, 0.42);
+  transform: translateY(-2px);
+}
+
+.truth-folder-card-label {
+  width: fit-content;
+  padding: 3px 8px;
+  border: 1px solid rgba(36, 30, 26, 0.16);
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: rgba(97, 51, 41, 0.82);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.truth-folder-card strong {
+  font-size: 0.98rem;
+  line-height: 1.32;
+}
+
+.truth-folder-card span:not(.truth-folder-card-label) {
+  color: rgba(61, 50, 42, 0.72);
+  line-height: 1.48;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.truth-folder-card em {
+  align-self: end;
+  color: rgba(97, 51, 41, 0.72);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.truth-folder-section-title {
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(70, 48, 34, 0.16);
+  border-left: 5px solid rgba(126, 34, 34, 0.58);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.2)),
+    linear-gradient(180deg, rgba(236, 221, 186, 0.72), rgba(221, 201, 164, 0.56));
+  color: rgba(48, 38, 31, 0.9);
+}
+
+.truth-folder-section-title span {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid rgba(36, 30, 26, 0.14);
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: rgba(106, 55, 43, 0.84);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.truth-folder-section-title strong {
+  font-size: 1.02rem;
+  line-height: 1.3;
+}
+
+.truth-folder-section-title p {
+  margin: 0;
+  color: rgba(61, 50, 42, 0.72);
+  font-size: 0.92rem;
+  line-height: 1.62;
+}
+
+.truth-folder-section-title + .truth-folder-section-title {
+  margin-top: 4px;
+}
+
+.truth-material-truth {
+  color: rgba(239, 231, 213, 0.94);
+  background:
+    radial-gradient(circle at 12% 12%, rgba(154, 35, 35, 0.22), transparent 34%),
+    linear-gradient(180deg, rgba(44, 37, 34, 0.98), rgba(24, 23, 24, 0.97));
+}
+
+.truth-material-truth .truth-material-kicker,
+.truth-material-truth .truth-material-label,
+.truth-material-truth .truth-material-meta {
+  color: rgba(246, 230, 202, 0.9);
+  border-color: rgba(239, 202, 150, 0.2);
+  background: rgba(255, 244, 220, 0.08);
+}
+
+.truth-material-truth p {
+  color: rgba(245, 238, 226, 0.9);
+}
+
+.truth-material-note {
+  background:
+    linear-gradient(180deg, rgba(250, 246, 232, 0.98), rgba(233, 226, 208, 0.94));
+  border-style: dashed;
+}
+
+@media (max-width: 720px) {
+  .truth-folder-index {
+    margin: 0 14px 18px;
+  }
+
+  .truth-folder-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .truth-folder-card {
+    min-height: 118px;
+  }
+
+  .truth-folder-section-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
+}
+
+
+.title-shell-1931 .title-painting-shell {
+  border-color: rgba(145, 27, 31, 0.38);
+  background:
+    radial-gradient(circle at 50% 2%, rgba(137, 29, 31, 0.18), transparent 36%),
+    linear-gradient(180deg, rgba(26, 18, 17, 0.96), rgba(14, 16, 19, 0.98));
+  box-shadow:
+    0 0 0 1px rgba(159, 38, 41, 0.26),
+    0 24px 58px rgba(21, 11, 12, 0.42);
+}
+
+.title-shell-1931 .painting-stage {
+  border-color: rgba(163, 45, 45, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(133, 24, 28, 0.26),
+    0 28px 64px rgba(0, 0, 0, 0.46);
+}
+
+.title-shell-1931 .painting-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 45%, transparent 36%, rgba(49, 12, 14, 0.18) 100%),
+    linear-gradient(180deg, rgba(98, 18, 22, 0.08), rgba(0, 0, 0, 0.18));
+}
+
+.title-preview-1931 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 112px;
+  padding: 22px 28px;
+  border-color: rgba(166, 35, 40, 0.36);
+  background:
+    linear-gradient(90deg, rgba(58, 14, 17, 0.94), rgba(26, 19, 20, 0.9)),
+    radial-gradient(circle at left, rgba(176, 38, 43, 0.18), transparent 44%);
+}
+
+.title-preview-1931 .title-preview-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  text-align: center;
+}
+
+.title-preview-1931-line {
+  width: 100%;
+  color: rgba(226, 54, 62, 0.98);
+  font-family: "Noto Serif SC", "Songti SC", serif;
+  font-size: clamp(1.35rem, 3vw, 2.6rem);
+  font-weight: 800;
+  line-height: 1.28;
+  text-shadow:
+    0 0 14px rgba(172, 24, 31, 0.42),
+    0 8px 24px rgba(0, 0, 0, 0.52);
+}
+
+.title-shell-1931 .painting-role.npc .painting-hitbox:hover,
+.title-shell-1931 .painting-role.npc .painting-hitbox:focus-visible,
+.title-shell-1931 .painting-role.npc:hover .painting-hitbox,
+.title-shell-1931 .painting-role.npc .painting-hitbox.active {
+  fill: rgba(221, 42, 50, 0.08);
+}
+
+.title-shell-1931 .painting-role.npc .painting-hitbox:hover + .painting-outline,
+.title-shell-1931 .painting-role.npc .painting-hitbox:focus-visible + .painting-outline,
+.title-shell-1931 .painting-role.npc:hover .painting-outline,
+.title-shell-1931 .painting-role.npc .painting-hitbox.active + .painting-outline {
+  stroke: rgba(238, 73, 82, 0.92);
+  stroke-width: 10px;
+  filter: drop-shadow(0 0 18px rgba(187, 36, 44, 0.5));
+}
+
+.title-shell-1931 .painting-hover-badge {
+  border-color: rgba(239, 77, 86, 0.38);
+  background: rgba(41, 12, 15, 0.88);
+  color: #ffd8d8;
+  box-shadow: 0 14px 30px rgba(48, 5, 8, 0.42);
 }
