@@ -6348,20 +6348,175 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       || /牺牲|献身|留下|留在|断后|挡住|守住|拖住|先走|我留在这里|替.*挡|成为噩梦/.test(optionText);
   }
 
-  function getSpecialEndingKey(currentState = state) {
-    const roleId = currentState.selectedRole;
-    const escaped = currentState.generators.progress >= 4;
-    const sacrifice = isSacrificeChoice(currentState);
+  function routeEntries(currentState = state) {
+    return Array.isArray(currentState.route) ? currentState.route : [];
+  }
+
+  function countRouteMatches(currentState, matcher) {
+    if (typeof matcher !== "function") return 0;
+    return routeEntries(currentState).filter((entry) => matcher(entry || {})).length;
+  }
+
+  function optionTextOf(entry = {}) {
+    return String(entry.optionLabel || entry.label || entry.optionKey || "");
+  }
+
+  function countRouteOptionsByText(currentState, pattern) {
+    const regex = pattern instanceof RegExp ? pattern : new RegExp(String(pattern || ""), "i");
+    return countRouteMatches(currentState, (entry) => regex.test(optionTextOf(entry)) || regex.test(String(entry.slotId || "")));
+  }
+
+  function truthScore(value) {
+    const truth = Number(value || 0);
+    if (truth >= 76) return 3;
+    if (truth >= 68) return 2;
+    if (truth >= 58) return 1;
+    return 0;
+  }
+
+  function relationScore(value, high = 14, mid = 10, low = 6) {
+    const relation = Number(value || 0);
+    if (relation >= high) return 3;
+    if (relation >= mid) return 2;
+    if (relation >= low) return 1;
+    return 0;
+  }
+
+  function sanityScore(value) {
+    const san = Number(value || 0);
+    if (san >= 40) return 2;
+    if (san >= 34) return 1;
+    return 0;
+  }
+
+  function bodyScore(currentState = state) {
+    const hp = Number(currentState.stats?.hp || 0);
+    if (!isHeavyInjury(currentState)) return hp >= 7 ? 2 : 1;
+    return 0;
+  }
+
+  function getRouteMilestoneScore(roleId, currentState = state) {
+    const flags = currentState.flags || {};
+    const truth = Number(currentState.stats?.truth || 0);
+    const generators = Number(currentState.generators?.progress || 0);
+    const clues = Array.isArray(currentState.clues) ? currentState.clues.length : 0;
+    const routeCount = routeEntries(currentState).length;
+    const evidenceChoices = countRouteOptionsByText(currentState, /truth|clue|proof|evidence|record|note|file|investigate|observe|protect|promise|mercy|expose|repair|generator|真相|线索|证据|记录|笔记|档案|调查|观察|保护|约定|安息|揭露|发电机|修理/);
+    let score = 0;
+    if (generators >= 4) score += 1;
+    if (truth >= 51) score += 1;
+    if (truth >= 68) score += 1;
+    if (clues >= 4) score += 1;
+    if (routeCount >= 8) score += 1;
+    if (evidenceChoices >= 2) score += 1;
+    if (flags.karlExposed) score += Math.min(2, Number(flags.karlExposed || 0));
+    if (flags.emilyProtected) score += roleId === "yamada" ? 2 : 1;
+    if (flags.patrickBond) score += roleId === "anjie" || roleId === "patrick" ? 2 : 1;
+    if (flags.patrickMercy) score += roleId === "patrick" ? 3 : 1;
+    if (flags.patrickAwakened) score += roleId === "patrick" ? 1 : 0;
+    if (flags.meruruBlessing) score += roleId === "fan" ? 2 : 1;
+    return score;
+  }
+
+  function evaluateCanonScore(roleId = state.selectedRole, currentState = state) {
+    const relationValues = Object.entries(currentState.relations || {})
+      .filter(([id]) => ENTITIES[id] && id !== roleId)
+      .map(([, value]) => Number(value || 0));
+    const positiveRelations = relationValues.filter((value) => value >= 6).length;
+    const severeEnemies = relationValues.filter((value) => value <= -16).length;
+    const routeCount = routeEntries(currentState).length;
+    const generators = Number(currentState.generators?.progress || 0);
     const truth = Number(currentState.stats?.truth || 0);
     const san = Number(currentState.stats?.san || 0);
     const hp = Number(currentState.stats?.hp || 0);
-    if (roleId === "fan" && sacrifice && truth >= 51 && san >= 40) return "special.fan_absolution";
-    if (roleId === "ziche" && escaped && hp >= 7 && getAverageRelation(currentState) <= 0 && !sacrifice) return "special.ziche_lone_exit";
-    if (roleId === "yamada" && escaped && currentState.flags?.emilyProtected && Number(currentState.relations?.emily || 0) >= 14) return "special.yamada_emily_promise";
-    if (roleId === "anjie" && truth >= 76 && Number(currentState.relations?.patrick || 0) >= 14 && !isHeavyInjury(currentState) && san >= 40) return "special.anjie_proof";
-    if (roleId === "debora" && escaped && Number(currentState.flags?.karlExposed || 0) >= 2 && truth >= 51) return "special.debora_old_debt";
-    if (roleId === "patrick" && currentState.flags?.patrickMercy && Number(currentState.relations?.anjie || 0) >= 14) return "special.patrick_rest";
-    return "";
+    let score = 0;
+    if (generators >= 4) score += 2;
+    else if (generators >= 3) score += 1;
+    if (truth >= 60) score += 2;
+    else if (truth >= 45) score += 1;
+    if (san >= 34) score += 1;
+    if (hp >= 6) score += 1;
+    if (positiveRelations >= 2) score += 1;
+    if (severeEnemies === 0) score += 1;
+    if (routeCount >= 8) score += 1;
+    score += Math.min(3, getRouteMilestoneScore(roleId, currentState));
+    return score;
+  }
+
+  function evaluateEndingScore(roleId = state.selectedRole, currentState = state) {
+    const flags = currentState.flags || {};
+    const relations = currentState.relations || {};
+    const stats = currentState.stats || {};
+    const escaped = Number(currentState.generators?.progress || 0) >= 4;
+    const sacrifice = isSacrificeChoice(currentState);
+    const hp = Number(stats.hp || 0);
+    const san = Number(stats.san || 0);
+    const truth = Number(stats.truth || 0);
+    const averageRelation = getAverageRelation(currentState);
+    const milestone = getRouteMilestoneScore(roleId, currentState);
+    const canon = evaluateCanonScore(roleId, currentState);
+    const base = {
+      roleId,
+      escaped,
+      sacrifice,
+      truth,
+      san,
+      hp,
+      heavyInjury: isHeavyInjury(currentState),
+      averageRelation,
+      milestone,
+      canon,
+      scores: {},
+      reasons: [],
+    };
+    const addReason = (label, value) => base.reasons.push({ label, value });
+    if (roleId === "fan") {
+      const score = (sacrifice ? 4 : 0) + truthScore(truth) + sanityScore(san) + Math.min(3, milestone) + (flags.meruruBlessing ? 2 : 0);
+      base.scores.fan_absolution = score;
+      addReason("牺牲意愿", sacrifice ? "成立" : "未选择");
+      addReason("真相与理智", `真相 ${truth} / SAN ${san}`);
+      base.specialKey = score >= 8 ? "special.fan_absolution" : "";
+    } else if (roleId === "ziche") {
+      const score = (escaped ? 3 : 0) + (hp >= 7 ? 2 : hp >= 6 ? 1 : 0) + (averageRelation <= 0 ? 2 : averageRelation <= 2 ? 1 : 0) + Math.min(3, milestone) + (!sacrifice ? 1 : 0);
+      base.scores.ziche_lone_exit = score;
+      addReason("独行倾向", `平均关系 ${averageRelation.toFixed(1)}`);
+      addReason("体能", `HP ${hp}`);
+      base.specialKey = score >= 8 ? "special.ziche_lone_exit" : "";
+    } else if (roleId === "yamada") {
+      const emily = Number(relations.emily || 0);
+      const score = (escaped ? 3 : 0) + (flags.emilyProtected ? 3 : 0) + relationScore(emily, 14, 10, 6) + Math.min(3, milestone);
+      base.scores.yamada_emily_promise = score;
+      addReason("艾米莉", `关系 ${emily}${flags.emilyProtected ? " / 已保护" : ""}`);
+      base.specialKey = score >= 8 ? "special.yamada_emily_promise" : "";
+    } else if (roleId === "anjie") {
+      const patrick = Number(relations.patrick || 0);
+      const score = (escaped ? 1 : 0) + truthScore(truth) + relationScore(patrick, 14, 10, 6) + sanityScore(san) + bodyScore(currentState) + Math.min(3, milestone) + (flags.patrickBond ? 1 : 0);
+      base.scores.anjie_proof = score;
+      addReason("证明链", `真相 ${truth} / 里程碑 ${milestone}`);
+      addReason("派翠克信任", `关系 ${patrick}${flags.patrickBond ? " / 共同经历" : ""}`);
+      addReason("稳定度", `HP ${hp} / SAN ${san}`);
+      base.specialKey = escaped && score >= 9 ? "special.anjie_proof" : "";
+    } else if (roleId === "debora") {
+      const exposed = Number(flags.karlExposed || 0);
+      const score = (escaped ? 3 : 0) + (exposed >= 2 ? 3 : exposed >= 1 ? 2 : 0) + truthScore(truth) + Math.min(3, milestone);
+      base.scores.debora_old_debt = score;
+      addReason("卡尔旧债", `揭露 ${exposed} / 真相 ${truth}`);
+      base.specialKey = score >= 8 ? "special.debora_old_debt" : "";
+    } else if (roleId === "patrick") {
+      const anjie = Number(relations.anjie || 0);
+      const score = (flags.patrickMercy ? 4 : 0) + relationScore(anjie, 14, 10, 6) + Math.min(3, milestone) + (flags.patrickBond ? 1 : 0) + (flags.patrickAwakened ? 1 : 0);
+      base.scores.patrick_rest = score;
+      addReason("安息标记", flags.patrickMercy ? "已取得" : "未取得");
+      addReason("安洁信任", `关系 ${anjie}`);
+      base.specialKey = score >= 8 ? "special.patrick_rest" : "";
+    }
+    return base;
+  }
+
+  function getSpecialEndingKey(currentState = state) {
+    const roleId = currentState.selectedRole;
+    const score = evaluateEndingScore(roleId, currentState);
+    return score.specialKey || "";
   }
 
   function getOutcomeTypeForKey(key) {
@@ -6475,28 +6630,28 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
 
   function getEndingConditionText(roleId, endingKey) {
     const common = {
-      "common.vote_exile": "投票公开时主角成为最高票，或平票名单包含主角。",
-      "common.dead": "路线结束前 HP 降至 0。",
-      "common.mad": "路线结束前 SAN 降至 0。",
-      "common.trapped": "进入终局时发电机进度不足 4。",
-      "common.sacrifice_failed_body": "最终选择牺牲，但 HP / maxHp 不高于 50%。",
-      "common.sacrifice_failed_sanity": "最终选择牺牲，但 SAN 低于 40。",
-      "common.sacrifice": "最终选择牺牲，且身体与理智仍能支撑断后。",
-      "common.loop_low_truth": "发电机进度达到 4，但真相值低于 76。",
-      "common.loop_wounded": "发电机进度达到 4，真相值不低于 76，但主角处于重伤。",
-      "common.loop_unstable": "发电机进度达到 4，真相值不低于 76，但 SAN 低于 40。",
-      "common.escape": "发电机进度达到 4，未触发特殊结局或循环惩罚，完成普通逃生。",
+      "common.vote_exile": "投票公开时主角成为最高票，或平票名单包含主角。关系权重会影响票型，但极端敌意仍可能锁票。",
+      "common.dead": "路线结束前 HP 降至 0。通常来自连续冒险、受伤后继续硬闯或错过补救。",
+      "common.mad": "路线结束前 SAN 降至 0。高真相会带来精神代价，但休整和线索复盘可以缓冲。",
+      "common.trapped": "进入终局时发电机进度不足 4。至少需要持续推进物理逃生，不能只追逐真相。",
+      "common.sacrifice_failed_body": "最终选择牺牲，但身体状态不足。若角色里程碑足够，部分路线可避免被单一体能值锁死。",
+      "common.sacrifice_failed_sanity": "最终选择牺牲，但精神状态不足。休整、信任和关键证据可以降低失败风险。",
+      "common.sacrifice": "最终选择牺牲，且身体、理智或角色里程碑足以支撑断后。",
+      "common.loop_low_truth": "发电机进度达到 4，但真相理解不足。v1.2 后，角色直觉和关键证据可补足一部分真相差距。",
+      "common.loop_wounded": "发电机进度达到 4、真相接近完整，但重伤拖住结局。足够的原作倾向选择可进入保底好结局。",
+      "common.loop_unstable": "发电机进度达到 4、真相接近完整，但 SAN 过低。足够的信任、证据和休整可补足。",
+      "common.escape": "发电机进度达到 4，并且真相、状态、关系或角色直觉评分足以支撑普通好结局。",
     };
     const special = {
-      fan: "塔比瑟最终选择牺牲，真相值不低于 51，且 SAN 不低于 40。",
-      ziche: "子车修满 4 台发电机、HP 不低于 7、平均关系值不高于 0，且未选择牺牲。",
-      yamada: "山田保护过艾米莉，艾米莉关系不低于 14，且发电机进度达到 4。",
-      anjie: "安洁真相值不低于 76、派翠克关系不低于 14、未重伤，且 SAN 不低于 40。",
-      debora: "狄波拉揭露卡尔至少 2 次、真相值不低于 51，且发电机进度达到 4。",
-      patrick: "派翠克获得安息标记，且安洁关系不低于 14。",
+      fan: "综合判定：牺牲意愿、真相理解、SAN 稳定、梅露露相关里程碑与角色直觉。高真相高 SAN 可直达，也可用关键选择补足。",
+      ziche: "综合判定：发电机完成、体能、独行倾向、未选择牺牲与路线里程碑。HP 略低或平均关系略高时，可由自立选择补足。",
+      yamada: "综合判定：发电机完成、艾米莉保护、艾米莉关系与共同经历。关系不足时，保护和承诺类选择可以补分。",
+      anjie: "综合判定：真相、派翠克信任、关键证据、SAN 稳定、未重伤与共同经历。高数值可直达，也允许证据或共同经历补足短板。",
+      debora: "综合判定：发电机完成、揭露卡尔、真相理解与旧债证据。揭露次数不足时，证据链和真相推进可补分。",
+      patrick: "综合判定：安息标记、安洁信任、派翠克觉醒/羁绊与路线里程碑。关系略低时，共同经历可补足。",
     };
     if (common[endingKey]) return common[endingKey];
-    if (String(endingKey || "").startsWith("special.")) return special[roleId] || "满足该角色个人特殊结局条件。";
+    if (String(endingKey || "").startsWith("special.")) return special[roleId] || "满足该角色个人特殊结局的综合评分：数值、证据、关系与关键选择共同判定。";
     return "满足该结局的对应判定条件。";
   }
 
@@ -6756,19 +6911,21 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     const heavyInjury = isHeavyInjury(currentState);
     const unstableSan = Number(currentState.stats?.san || 0) < 40;
     const escaped = currentState.generators.progress >= 4;
-    const truthReady = Number(currentState.stats?.truth || 0) >= 76;
+    const endingScore = evaluateEndingScore(currentState.selectedRole, currentState);
+    const canonGood = endingScore.canon >= 8;
+    const truthReady = Number(currentState.stats?.truth || 0) >= 76 || (canonGood && Number(currentState.stats?.truth || 0) >= 58);
     if (currentState.exiledByVote) return createOutcome(currentState, "common.vote_exile");
     if (isDead(currentState)) return createOutcome(currentState, "common.dead");
     if (isInsane(currentState)) return createOutcome(currentState, "common.mad");
-    const specialKey = getSpecialEndingKey(currentState);
+    const specialKey = endingScore.specialKey || getSpecialEndingKey(currentState);
     if (specialKey) return createOutcome(currentState, specialKey);
-    if (sacrifice && heavyInjury) return createOutcome(currentState, "common.sacrifice_failed_body");
-    if (sacrifice && unstableSan) return createOutcome(currentState, "common.sacrifice_failed_sanity");
+    if (sacrifice && heavyInjury && !canonGood) return createOutcome(currentState, "common.sacrifice_failed_body");
+    if (sacrifice && unstableSan && !canonGood) return createOutcome(currentState, "common.sacrifice_failed_sanity");
     if (sacrifice) return createOutcome(currentState, "common.sacrifice");
     if (!escaped) return createOutcome(currentState, "common.trapped");
     if (!truthReady) return createOutcome(currentState, "common.loop_low_truth");
-    if (heavyInjury) return createOutcome(currentState, "common.loop_wounded");
-    if (unstableSan) return createOutcome(currentState, "common.loop_unstable");
+    if (heavyInjury && !canonGood) return createOutcome(currentState, "common.loop_wounded");
+    if (unstableSan && !canonGood) return createOutcome(currentState, "common.loop_unstable");
     return createOutcome(currentState, "common.escape");
   }
 
@@ -7011,7 +7168,16 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
             ${renderTitleHoverBadge()}
           </div>
           ${truthTitleMode && !titlePreviewRoleId ? renderTitle1931Message() : renderTitlePreviewBand()}
-          ${truthTitleMode ? renderTruthRouteEntry("title") : ""}
+          ${truthTitleMode ? renderTruthRouteEntry("title") : `
+            <section class="title-onboarding panel">
+              <div class="panel-headline">初次游玩导入</div>
+              <div class="title-onboarding-grid">
+                <span>你在封闭疗养院醒来，每 15 分钟选择一次行动、立场与风险。</span>
+                <span>发电机决定能否逃生；真相、HP、SAN 与关系共同改变结局。</span>
+                <span>v1.2 起，结局更重视证据、共同经历和角色直觉，不再只有唯一数值解。</span>
+              </div>
+            </section>
+          `}
         </section>
       </section>
     `;
@@ -7240,6 +7406,82 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     `;
   }
 
+  function getClockTone(value) {
+    if (value >= 75) return "danger";
+    if (value >= 45) return "warn";
+    return "calm";
+  }
+
+  function buildFictionalClocks(currentState = state) {
+    const stats = currentState.stats || {};
+    const relations = currentState.relations || {};
+    const positive = Object.entries(relations).filter(([id, value]) => ENTITIES[id] && id !== currentState.selectedRole && Number(value || 0) >= 6).length;
+    const hostile = Object.entries(relations).filter(([id, value]) => ENTITIES[id] && id !== currentState.selectedRole && Number(value || 0) <= -6).length;
+    const danger = clamp((BASE_HP - Number(stats.hp || 0)) * 8 + (currentState.deadEntities?.length || 0) * 10 + (currentState.slotIndex || 0) * 5 + hostile * 4, 0, 100);
+    const trust = clamp(positive * 18 + Object.keys(currentState.alliances || {}).length * 10 - hostile * 8, 0, 100);
+    const contamination = clamp((99 - Number(stats.san || 0)) + Number(stats.truth || 0) * 0.35, 0, 100);
+    return [
+      { label: "真相推进", value: clamp(Number(stats.truth || 0), 0, 100), tone: getClockTone(Number(stats.truth || 0)), hint: getTruthTierLabel(stats.truth) },
+      { label: "危险升温", value: danger, tone: getClockTone(danger), hint: danger >= 70 ? "疗养院正在收口" : danger >= 40 ? "压力开始聚集" : "仍有回旋空间" },
+      { label: "信任网络", value: trust, tone: trust >= 55 ? "calm" : trust >= 25 ? "warn" : "danger", hint: trust >= 55 ? "有人愿意听你说话" : trust >= 25 ? "关系仍可补救" : "孤立风险上升" },
+      { label: "精神污染", value: contamination, tone: getClockTone(contamination), hint: contamination >= 70 ? "所见正在反咬你" : contamination >= 40 ? "理解伴随代价" : "意识尚能整理" },
+    ];
+  }
+
+  function renderFictionalClocks(currentState = state) {
+    return `
+      <section class="panel rail-card route-clock-card">
+        <div class="panel-headline">局势钟</div>
+        <div class="clock-list">
+          ${buildFictionalClocks(currentState).map((clock) => `
+            <div class="clock-item ${clock.tone}">
+              <div class="clock-head"><strong>${escapeHtml(clock.label)}</strong><span>${Math.round(clock.value)}%</span></div>
+              <div class="clock-track"><i style="width:${Math.round(clock.value)}%"></i></div>
+              <small>${escapeHtml(clock.hint)}</small>
+            </div>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function buildRouteNotebook(currentState = state) {
+    const role = ROLE_DEFS[currentState.selectedRole] || currentRole();
+    const slot = SLOT_ORDER[currentState.slotIndex || 0] || "1.1";
+    const truth = Number(currentState.stats?.truth || 0);
+    const generators = Number(currentState.generators?.progress || 0);
+    const clues = Array.isArray(currentState.clues) ? currentState.clues : [];
+    const relationFocus = Object.entries(currentState.relations || {})
+      .filter(([id]) => ENTITIES[id] && id !== currentState.selectedRole)
+      .sort((a, b) => Math.abs(Number(b[1] || 0)) - Math.abs(Number(a[1] || 0)))[0];
+    const focusText = relationFocus ? `${ENTITIES[relationFocus[0]]?.short || relationFocus[0]} ${Number(relationFocus[1] || 0) >= 0 ? "+" : ""}${Number(relationFocus[1] || 0)}` : "关系尚未成形";
+    const needs = [];
+    if (generators < 4) needs.push("继续修复发电机");
+    if (truth < 58) needs.push("补足能解释疗养院规则的线索");
+    if (currentState.stats?.san < 34) needs.push("安排休整或降低精神代价");
+    if (currentState.stats?.hp < 6) needs.push("避免继续硬闯");
+    if (!needs.length) needs.push("把证据、关系和终局选择串起来");
+    return {
+      focus: `${role?.name || "主角"}在 ${slot} 的目标不是刷满数值，而是决定用什么立场活下去。`,
+      known: clues.length ? clues.slice(-2).join(" / ") : `发电机 ${generators} / 4，真相处于“${getTruthTierLabel(truth)}”。`,
+      relation: focusText,
+      next: needs.slice(0, 2).join("；"),
+    };
+  }
+
+  function renderRouteNotebook(currentState = state) {
+    const note = buildRouteNotebook(currentState);
+    return `
+      <section class="panel rail-card route-note-card">
+        <div class="panel-headline">路线笔记</div>
+        <div class="route-note-line"><strong>当下</strong><span>${escapeHtml(note.focus)}</span></div>
+        <div class="route-note-line"><strong>已知</strong><span>${escapeHtml(note.known)}</span></div>
+        <div class="route-note-line"><strong>关系</strong><span>${escapeHtml(note.relation)}</span></div>
+        <div class="route-note-line"><strong>缺口</strong><span>${escapeHtml(note.next)}</span></div>
+      </section>
+    `;
+  }
+
   function renderGame() {
     const role = currentRole();
     const slotId = currentSlotId();
@@ -7291,6 +7533,8 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
                 .join("")}
             </div>
           </section>
+          ${renderRouteNotebook(state)}
+          ${renderFictionalClocks(state)}
         </aside>
         <main class="story-column">
           <section class="panel scene-header">
@@ -8001,6 +8245,44 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     `;
   }
 
+  function buildEndingRecap(currentState = state, outcome = currentState.outcome || determineOutcome(currentState)) {
+    const score = evaluateEndingScore(currentState.selectedRole, currentState);
+    const understood = [];
+    const missed = [];
+    const next = [];
+    if (currentState.generators?.progress >= 4) understood.push("你已经证明：逃生不是只靠勇气，至少需要把发电机、密码和同伴行动接起来。");
+    else missed.push("物理逃生链仍然断裂：发电机进度不足会压过大多数剧情判断。");
+    if (Number(currentState.stats?.truth || 0) >= 58 || score.canon >= 8) understood.push("你抓住了足够多的规则碎片，已经能解释疗养院为什么反复吞人。");
+    else missed.push("真相线索仍偏散，下一次优先选择调查、记录、追问和复盘类行动。");
+    if (outcome.scope === "special") understood.push("这次结局来自角色自身的选择逻辑：关系、证据和关键经历共同成立。");
+    else next.push("若想进入个人特殊结局，别只盯一个数值：同时补证据、关键关系和角色里程碑。");
+    if (Number(currentState.stats?.san || 0) < 34) missed.push("SAN 已经很低，很多真相会被污染成循环；休息和内心整理现在更有价值。");
+    if (isHeavyInjury(currentState)) missed.push("身体状态拖住了终局执行，重伤后继续硬闯会让好结局变窄。");
+    if (!next.length) next.push("可以尝试换一种立场：更公开地结盟、更克制地调查，或把最后选择交给角色直觉。");
+    return {
+      understood: understood.slice(0, 3),
+      missed: missed.slice(0, 3),
+      next: next.slice(0, 2),
+      score,
+    };
+  }
+
+  function renderEndingRecap(currentState = state, outcome = currentState.outcome || determineOutcome(currentState)) {
+    const recap = buildEndingRecap(currentState, outcome);
+    const scoreLine = `特殊评分 ${Object.values(recap.score.scores || {})[0] || 0} / 原作倾向 ${recap.score.canon}`;
+    const renderList = (items) => items.length ? items.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "<li>本次没有明显缺口，差异主要来自终局选择。</li>";
+    return `
+      <section class="ending-recap">
+        <div class="archive-meta">v1.2 复盘 · ${escapeHtml(scoreLine)}</div>
+        <div class="ending-recap-grid">
+          <div><h3>你理解了什么</h3><ul>${renderList(recap.understood)}</ul></div>
+          <div><h3>你错过了什么方向</h3><ul>${renderList(recap.missed)}</ul></div>
+          <div><h3>下一次可以尝试</h3><ul>${renderList(recap.next)}</ul></div>
+        </div>
+      </section>
+    `;
+  }
+
   function renderEnd() {
     const role = currentRole();
     const outcome = state.outcome || determineOutcome();
@@ -8025,6 +8307,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
             <h2>${role.name}</h2>
             <p>${compressTextByState(outcome.text, state)}</p>
             ${renderEndingChecks(endingChecks)}
+            ${renderEndingRecap(state, outcome)}
             <div class="detail-line"><strong>终局摘要</strong><span>真相 ${state.stats.truth} / ${getTruthTierLabel(state.stats.truth)} / 发电机 ${state.generators.progress} / 4</span></div>
             <div class="detail-line"><strong>判定结果</strong><span>${outcome.scope === "special" ? "个人特殊结局" : "通用结局"} · ${outcome.note || outcome.title}</span></div>
             <div class="detail-line"><strong>投票结果</strong><span>${state.exiledByVote ? "你被投票放逐" : (state.voteDeaths.length ? state.voteDeaths.map((id) => ENTITIES[id]?.name || id).join(" / ") : "未记录")}</span></div>
@@ -8484,6 +8767,12 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     saveSlot,
     evaluateOutcome: () => structuredClone(determineOutcome()),
     evaluateOutcomeForState: (nextState) => structuredClone(determineOutcome(normalizeState(nextState))),
+    evaluateEndingScore: (roleId = state.selectedRole) => structuredClone(evaluateEndingScore(roleId, state)),
+    evaluateEndingScoreForState: (roleId, nextState) => {
+      const normalized = normalizeState(nextState || state);
+      return structuredClone(evaluateEndingScore(roleId || normalized.selectedRole, normalized));
+    },
+    evaluateCanonScore: (roleId = state.selectedRole) => evaluateCanonScore(roleId, state),
     getMeta: () => structuredClone(loadMeta()),
     setMeta: (nextMeta) => {
       const meta = normalizeMeta(nextMeta);

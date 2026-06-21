@@ -2913,3 +2913,140 @@ button {
   color: #ffd8d8;
   box-shadow: 0 14px 30px rgba(48, 5, 8, 0.42);
 }
+
+
+.route-note-card,
+.route-clock-card {
+  gap: 12px;
+}
+
+.route-note-line {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(93, 127, 174, 0.12);
+}
+
+.route-note-line strong {
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+
+.route-note-line span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.58;
+}
+
+.clock-list {
+  display: grid;
+  gap: 10px;
+}
+
+.clock-item {
+  display: grid;
+  gap: 6px;
+}
+
+.clock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.clock-head span,
+.clock-item small {
+  color: var(--muted);
+}
+
+.clock-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(29, 35, 43, 0.08);
+}
+
+.clock-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(93, 127, 174, 0.72);
+}
+
+.clock-item.warn .clock-track i {
+  background: rgba(189, 151, 73, 0.74);
+}
+
+.clock-item.danger .clock-track i {
+  background: rgba(160, 88, 88, 0.76);
+}
+
+.ending-recap {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(93, 127, 174, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(245, 248, 250, 0.82));
+}
+
+.ending-recap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ending-recap h3 {
+  margin: 0 0 8px;
+  font-size: 0.94rem;
+}
+
+.ending-recap ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.68;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 860px) {
+  .ending-recap-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.title-onboarding {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(246, 248, 250, 0.82));
+}
+
+.title-onboarding-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.title-onboarding-grid span {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(93, 127, 174, 0.14);
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--muted);
+  line-height: 1.62;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 860px) {
+  .title-onboarding-grid {
+    grid-template-columns: 1fr;
+  }
+}
