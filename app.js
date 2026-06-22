@@ -8,6 +8,7 @@
   const ROLE_DEFS = STORY_DATA.roleDefs || {};
   const ENDING_PROFILES = STORY_DATA.endingProfiles || { common: {}, roles: {}, special: {} };
   const TRUTH_ROUTE = STORY_DATA.truthRoute || { title: "埃莉诺的文件夹", subtitle: "上帝视角真相路线", pages: [], epilogue: [] };
+  const EPILOGUE_COLLECTION_ID = "__epilogue__";
   const TITLE_PRESENTATION = STORY_DATA.titlePresentation || {};
   const CHARACTER_PRESENTATION = STORY_DATA.characterPresentation || {};
   const SLOT_META = STORY_DATA.slotMeta || {};
@@ -492,6 +493,11 @@
   let titlePreviewRoleId = null;
   let titleTouchArmedRoleId = null;
   let titlePreviewLockUntil = 0;
+  let epilogueAudio = null;
+  let epilogueAudioTimer = null;
+  let epilogueAudioSeeking = false;
+  let epilogueAudioSeekControl = null;
+  let epilogueTextScrollTimer = null;
 
   if (STORY_DATA_ISSUES.length) {
     renderFatal(null, [
@@ -512,6 +518,8 @@
       scenePage: 0,
       truthCollectionId: null,
       truthPageIndex: 0,
+      epilogueActIndex: 0,
+      epilogueFast: false,
       galleryEnding: null,
       scene: null,
       notice: "",
@@ -1283,6 +1291,8 @@
     merged.scenePage = clamp(Number(merged.scenePage || 0), 0, 99);
     merged.truthCollectionId = typeof input?.truthCollectionId === "string" ? input.truthCollectionId : null;
     merged.truthPageIndex = clamp(Number(merged.truthPageIndex || 0), 0, 999);
+    merged.epilogueActIndex = clamp(Number(merged.epilogueActIndex || 0), 0, 3);
+    merged.epilogueFast = !!input?.epilogueFast;
     merged.galleryEnding = input?.galleryEnding && typeof input.galleryEnding.roleId === "string" && typeof input.galleryEnding.key === "string"
       ? { roleId: input.galleryEnding.roleId, key: input.galleryEnding.key }
       : null;
@@ -1718,6 +1728,116 @@
     return Array.isArray(TRUTH_ROUTE.collections) ? TRUTH_ROUTE.collections : [];
   }
 
+  function truthEpilogueActs() {
+    return Array.isArray(TRUTH_ROUTE.epilogueActs) ? TRUTH_ROUTE.epilogueActs : [];
+  }
+
+  function epilogueAudioSrc() {
+    return TRUTH_ROUTE.epilogueAudio || "./assets/ui/epilogue-bgm.mp3";
+  }
+
+  function ensureEpilogueAudio() {
+    const src = epilogueAudioSrc();
+    if (!src) return null;
+    if (!epilogueAudio || epilogueAudio.getAttribute("src") !== src) {
+      if (epilogueAudio?.parentNode) epilogueAudio.parentNode.removeChild(epilogueAudio);
+      epilogueAudio = new Audio(src);
+      epilogueAudio.setAttribute("src", src);
+      epilogueAudio.setAttribute("data-epilogue-audio", "true");
+      epilogueAudio.style.display = "none";
+      epilogueAudio.loop = true;
+      epilogueAudio.volume = 0.28;
+      epilogueAudio.preload = "auto";
+      epilogueAudio.addEventListener("timeupdate", syncEpilogueAudioUi);
+      epilogueAudio.addEventListener("durationchange", syncEpilogueAudioUi);
+      epilogueAudio.addEventListener("play", syncEpilogueAudioUi);
+      epilogueAudio.addEventListener("pause", syncEpilogueAudioUi);
+      document.body.appendChild(epilogueAudio);
+    }
+    return epilogueAudio;
+  }
+
+  function syncEpilogueAudioUi() {
+    const audio = epilogueAudio;
+    const progress = app.querySelector("[data-epilogue-audio-progress]");
+    const toggle = app.querySelector("[data-action='toggle-epilogue-audio']");
+    if (progress && audio) {
+      const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+      progress.max = duration ? String(Math.round(duration * 1000)) : "1000";
+      if (!epilogueAudioSeeking) {
+        progress.value = duration ? String(Math.round(audio.currentTime * 1000)) : "0";
+      }
+    }
+    if (toggle && audio) {
+      toggle.textContent = audio.paused ? "\u64ad\u653e" : "\u6682\u505c";
+      toggle.setAttribute("aria-pressed", audio.paused ? "false" : "true");
+    }
+  }
+
+  function startEpilogueAudio() {
+    const audio = ensureEpilogueAudio();
+    if (!audio) return;
+    audio.play().catch(() => {
+      syncEpilogueAudioUi();
+    });
+    if (!epilogueAudioTimer) {
+      epilogueAudioTimer = window.setInterval(syncEpilogueAudioUi, 500);
+    }
+  }
+
+  function stopEpilogueAudioTimer() {
+    if (epilogueAudioTimer) {
+      window.clearInterval(epilogueAudioTimer);
+      epilogueAudioTimer = null;
+    }
+  }
+
+  function pauseEpilogueAudio() {
+    if (epilogueAudio) epilogueAudio.pause();
+    stopEpilogueAudioTimer();
+    syncEpilogueAudioUi();
+  }
+
+  function toggleEpilogueAudio() {
+    const audio = ensureEpilogueAudio();
+    if (!audio) return;
+    if (audio.paused) {
+      startEpilogueAudio();
+    } else {
+      audio.pause();
+      syncEpilogueAudioUi();
+    }
+  }
+
+  function seekEpilogueAudio(value) {
+    const audio = ensureEpilogueAudio();
+    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    audio.currentTime = clamp(Number(value || 0) / 1000, 0, audio.duration);
+  }
+
+  function seekEpilogueAudioFromPointer(control, event) {
+    const audio = ensureEpilogueAudio();
+    if (!control || !audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    const rect = control.getBoundingClientRect();
+    const ratio = rect.width > 0 ? clamp((event.clientX - rect.left) / rect.width, 0, 1) : 0;
+    const value = Math.round(audio.duration * 1000 * ratio);
+    control.max = String(Math.round(audio.duration * 1000));
+    control.value = String(value);
+    seekEpilogueAudio(value);
+  }
+
+  function pauseEpilogueTextAutoScroll(target) {
+    const windowEl = target?.closest?.("[data-epilogue-scroll-window]") || target;
+    const stage = windowEl?.closest?.(".epilogue-stage");
+    if (!stage) return;
+    stage.classList.add("is-user-scrolling");
+    if (epilogueTextScrollTimer) window.clearTimeout(epilogueTextScrollTimer);
+    epilogueTextScrollTimer = window.setTimeout(() => {
+      stage.classList.remove("is-user-scrolling");
+      epilogueTextScrollTimer = null;
+    }, 3600);
+  }
+
   function truthCollectionById(collectionId = state.truthCollectionId) {
     return truthCollections().find((collection) => collection.id === collectionId) || null;
   }
@@ -1736,6 +1856,9 @@
     const unlocked = meta.truthRouteUnlocked && truthRoutePageCount() > 0;
     if (!unlocked) return "";
     const className = location === "title" ? "title-truth-entry" : "panel truth-unlock-panel";
+    const epilogueButton = location === "title" && truthEpilogueActs().length
+      ? `<button class="btn epilogue-entry-btn" data-action="open-epilogue">\u5c3e\u58f0</button>`
+      : "";
     return `
       <section class="${className}">
         <div>
@@ -1743,17 +1866,22 @@
           <h2>${TRUTH_ROUTE.title || "埃莉诺的文件夹"}</h2>
           <p>${TRUTH_ROUTE.subtitle || "上帝视角真相路线"} · ${meta.truthRouteManualUnlock ? "标题隐藏入口已启动" : `已完成 ${completed} / ${PLAYABLE_ROLE_IDS.length} 名主角线路`}。</p>
         </div>
-        <button class="btn primary" data-action="open-truth">${meta.truthRouteCompleted ? "重读真相路线" : "进入真相路线"}</button>
+        <div class="truth-entry-actions">
+          <button class="btn primary" data-action="open-truth">${meta.truthRouteCompleted ? "重读真相路线" : "进入真相路线"}</button>
+          ${epilogueButton}
+        </div>
       </section>
     `;
   }
 
   function resetToTitle() {
+    pauseEpilogueAudio();
     state.screen = "title";
     state.overlay = null;
     state.phase = state.finished ? "decision" : state.phase;
     state.scenePage = 0;
     state.truthPageIndex = 0;
+    state.epilogueFast = false;
     titlePreviewRoleId = null;
     titleTouchArmedRoleId = null;
     persist();
@@ -1782,6 +1910,7 @@
 
   function openTruthRoute() {
     if (!isTruthRouteUnlocked()) return;
+    pauseEpilogueAudio();
     state.screen = "truth";
     state.overlay = null;
     state.phase = "decision";
@@ -1789,12 +1918,31 @@
     state.scenePage = 0;
     state.truthCollectionId = null;
     state.truthPageIndex = 0;
+    state.epilogueActIndex = 0;
+    state.epilogueFast = false;
     persist();
     render();
   }
 
+  function openEpilogue() {
+    if (!isTruthRouteUnlocked() || !truthEpilogueActs().length) return;
+    state.screen = "truth";
+    state.overlay = null;
+    state.phase = "decision";
+    state.scene = null;
+    state.scenePage = 0;
+    state.truthCollectionId = EPILOGUE_COLLECTION_ID;
+    state.truthPageIndex = 0;
+    state.epilogueActIndex = 0;
+    state.epilogueFast = false;
+    persist();
+    render();
+    startEpilogueAudio();
+  }
+
   function openTruthCollection(collectionId) {
     if (state.screen !== "truth") return;
+    pauseEpilogueAudio();
     const collection = truthCollectionById(collectionId);
     if (!collection) return;
     state.truthCollectionId = collection.id;
@@ -1805,8 +1953,10 @@
 
   function backTruthIndex() {
     if (state.screen !== "truth") return;
+    pauseEpilogueAudio();
     state.truthCollectionId = null;
     state.truthPageIndex = 0;
+    state.epilogueFast = false;
     persist();
     render();
   }
@@ -1830,6 +1980,38 @@
 
   function continueTruthRoute() {
     stepTruthPage(1);
+  }
+
+  function speedEpilogueScroll() {
+    if (state.screen !== "truth" || state.truthCollectionId !== EPILOGUE_COLLECTION_ID) return;
+    state.epilogueFast = true;
+    const stage = app.querySelector(".epilogue-stage");
+    const tag = app.querySelector("[data-epilogue-speed-label]");
+    const button = app.querySelector("[data-action='speed-epilogue']");
+    if (stage) stage.classList.add("is-fast");
+    if (tag) tag.textContent = "\u9ad8\u901f\u64ad\u653e";
+    if (button) button.disabled = true;
+    persist();
+  }
+
+  function nextEpilogueAct() {
+    if (state.screen !== "truth" || state.truthCollectionId !== EPILOGUE_COLLECTION_ID) return;
+    const acts = truthEpilogueActs();
+    const lastIndex = Math.max(0, acts.length - 1);
+    if (!acts.length) return backTruthIndex();
+    if (state.epilogueActIndex < lastIndex) {
+      state.epilogueActIndex += 1;
+      state.epilogueFast = false;
+    } else {
+      markTruthRouteCompleted();
+      state.truthCollectionId = null;
+      state.truthPageIndex = 0;
+      state.epilogueActIndex = 0;
+      state.epilogueFast = false;
+    }
+    persist();
+    render();
+    startEpilogueAudio();
   }
 
   function openPresentationRole(roleId) {
@@ -7085,6 +7267,9 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         ${renderMain()}
         ${renderOverlay()}
       `;
+      if (state.screen === "truth" && state.truthCollectionId === EPILOGUE_COLLECTION_ID) {
+        syncEpilogueAudioUi();
+      }
     } catch (error) {
       console.error("[Shepherd] Render failed.", error);
       renderFatal(error, ["当前页面或旧版存档已触发渲染保护，已改为显示错误面板。"]);
@@ -7354,8 +7539,61 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     `;
   }
 
+  function renderEpilogue() {
+    const acts = truthEpilogueActs();
+    if (!acts.length) return renderTruthIndex();
+    const total = acts.length;
+    const actIndex = clamp(Number(state.epilogueActIndex || 0), 0, total - 1);
+    const act = acts[actIndex] || acts[0];
+    const paragraphs = Array.isArray(act.paragraphs) ? act.paragraphs : [];
+    const textLength = paragraphs.join("").length;
+    const duration = clamp(Math.round(textLength / 12), 24, 78);
+    const isLast = actIndex >= total - 1;
+    return `
+      <section class="frame page-shell truth-route-shell epilogue-shell">
+        <div class="topbar">
+          <div>
+            <h1>${TRUTH_ROUTE.title || "\u57c3\u8389\u8bfa\u7684\u6587\u4ef6\u5939"}</h1>
+            <p>\u5c3e\u58f0 \u00b7 ${escapeHtml(act.title || "")}</p>
+          </div>
+          <div class="title-tags">
+            <span class="tag-pill">\u7b2c ${actIndex + 1} / ${total} \u5e55</span>
+            <span class="tag-pill" data-epilogue-speed-label>${state.epilogueFast ? "\u9ad8\u901f\u64ad\u653e" : "\u81ea\u52a8\u64ad\u653e"}</span>
+          </div>
+        </div>
+        <div class="epilogue-audio-bar">
+          <button class="btn" data-action="toggle-epilogue-audio" aria-pressed="false">\u64ad\u653e</button>
+          <input class="epilogue-audio-progress" data-epilogue-audio-progress type="range" min="0" max="1000" value="0" aria-label="\u5c3e\u58f0BGM\u8fdb\u5ea6">
+        </div>
+        <section class="panel epilogue-stage ${state.epilogueFast ? "is-fast" : ""}" style="--epilogue-duration: ${duration}s;">
+          <figure class="epilogue-cg">
+            <img src="${escapeHtml(act.image || "")}" alt="${escapeHtml(act.title || "\u5c3e\u58f0CG")}">
+            <figcaption>${escapeHtml(act.title || "")}</figcaption>
+          </figure>
+          <div class="epilogue-copy">
+            <div class="truth-material-kicker">\u5c3e\u58f0</div>
+            <h2>${escapeHtml(act.title || "")}</h2>
+            <div class="epilogue-scroll-window" data-epilogue-scroll-window aria-live="polite" tabindex="0">
+              <div class="epilogue-scroll-text">
+                ${paragraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}
+              </div>
+            </div>
+            <div class="footer-actions">
+              <button class="btn primary" data-action="speed-epilogue" ${state.epilogueFast ? "disabled" : ""}>\u52a0\u901f\u6eda\u52a8</button>
+              <button class="btn primary" data-action="next-epilogue">${isLast ? "\u7ed3\u675f\u5c3e\u58f0" : "\u8fdb\u5165\u4e0b\u4e00\u5e55"}</button>
+              <button class="btn" data-action="truth-index">\u8fd4\u56de\u6750\u6599\u9009\u62e9</button>
+              <button class="btn" data-action="archive">\u67e5\u770b\u6863\u6848</button>
+              <button class="btn" data-action="back-title">\u8fd4\u56de\u6807\u9898</button>
+            </div>
+          </div>
+        </section>
+      </section>
+    `;
+  }
+
   function renderTruth() {
     const meta = loadMeta();
+    if (state.truthCollectionId === EPILOGUE_COLLECTION_ID) return renderEpilogue();
     const collection = truthCollectionById();
     if (!collection) return renderTruthIndex();
     const pages = Array.isArray(collection.pages) ? collection.pages : [];
@@ -7533,8 +7771,6 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
                 .join("")}
             </div>
           </section>
-          ${renderRouteNotebook(state)}
-          ${renderFictionalClocks(state)}
         </aside>
         <main class="story-column">
           <section class="panel scene-header">
@@ -7588,6 +7824,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
                       .map((key) => renderReadableOptionCard(role.id, slotId, key, options[key]))
                       .join("")}
                   </div>
+                  ${renderFictionalClocks(state)}
                 </section>
               `
               : renderSceneResult()
@@ -7616,6 +7853,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
             <div class="panel-headline">路线轨迹</div>
             ${renderRouteTrace(role.id)}
           </section>
+          ${renderRouteNotebook(state)}
         </aside>
       </section>
     `;
@@ -8542,6 +8780,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         resumeLast();
         break;
       case "archive":
+        pauseEpilogueAudio();
         state.screen = "archive";
         state.overlay = null;
         persist();
@@ -8552,6 +8791,9 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         break;
       case "open-truth":
         openTruthRoute();
+        break;
+      case "open-epilogue":
+        openEpilogue();
         break;
       case "open-truth-collection":
         openTruthCollection(button.dataset.collection);
@@ -8564,6 +8806,15 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         break;
       case "continue-truth":
         continueTruthRoute();
+        break;
+      case "speed-epilogue":
+        speedEpilogueScroll();
+        break;
+      case "next-epilogue":
+        nextEpilogueAct();
+        break;
+      case "toggle-epilogue-audio":
+        toggleEpilogueAudio();
         break;
       case "complete-truth":
         completeTruthRoute();
@@ -8640,6 +8891,78 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         break;
     }
   });
+
+  app.addEventListener("input", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !target.matches("[data-epilogue-audio-progress]")) return;
+    epilogueAudioSeeking = true;
+    seekEpilogueAudio(target.value);
+  });
+
+  app.addEventListener("change", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !target.matches("[data-epilogue-audio-progress]")) return;
+    seekEpilogueAudio(target.value);
+    epilogueAudioSeeking = false;
+    syncEpilogueAudioUi();
+  });
+
+  app.addEventListener("pointerdown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !target.matches("[data-epilogue-audio-progress]")) return;
+    epilogueAudioSeeking = true;
+    epilogueAudioSeekControl = target;
+    seekEpilogueAudioFromPointer(target, event);
+    if (typeof target.setPointerCapture === "function") {
+      target.setPointerCapture(event.pointerId);
+    }
+  });
+
+  app.addEventListener("pointermove", (event) => {
+    if (!epilogueAudioSeeking || !epilogueAudioSeekControl) return;
+    seekEpilogueAudioFromPointer(epilogueAudioSeekControl, event);
+  });
+
+  app.addEventListener("pointerup", (event) => {
+    if (!epilogueAudioSeeking || !epilogueAudioSeekControl) return;
+    seekEpilogueAudioFromPointer(epilogueAudioSeekControl, event);
+    epilogueAudioSeeking = false;
+    epilogueAudioSeekControl = null;
+    syncEpilogueAudioUi();
+  });
+
+  app.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !target.matches("[data-epilogue-audio-progress]")) return;
+    seekEpilogueAudioFromPointer(target, event);
+    epilogueAudioSeeking = false;
+    epilogueAudioSeekControl = null;
+    syncEpilogueAudioUi();
+  }, true);
+
+  app.addEventListener("wheel", (event) => {
+    const target = event.target instanceof Element ? event.target.closest("[data-epilogue-scroll-window]") : null;
+    if (!target) return;
+    pauseEpilogueTextAutoScroll(target);
+  }, true);
+
+  app.addEventListener("scroll", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !target.matches("[data-epilogue-scroll-window]")) return;
+    pauseEpilogueTextAutoScroll(target);
+  }, true);
+
+  app.addEventListener("pointerdown", (event) => {
+    const target = event.target instanceof Element ? event.target.closest("[data-epilogue-scroll-window]") : null;
+    if (!target) return;
+    pauseEpilogueTextAutoScroll(target);
+  }, true);
+
+  app.addEventListener("touchstart", (event) => {
+    const target = event.target instanceof Element ? event.target.closest("[data-epilogue-scroll-window]") : null;
+    if (!target) return;
+    pauseEpilogueTextAutoScroll(target);
+  }, true);
 
   window.addEventListener("keydown", (event) => {
     const hotspot = event.target instanceof Element ? event.target.closest("[data-title-hotspot='true']") : null;
