@@ -1867,7 +1867,7 @@
           <p>${TRUTH_ROUTE.subtitle || "上帝视角真相路线"} · ${meta.truthRouteManualUnlock ? "标题隐藏入口已启动" : `已完成 ${completed} / ${PLAYABLE_ROLE_IDS.length} 名主角线路`}。</p>
         </div>
         <div class="truth-entry-actions">
-          <button class="btn primary" data-action="open-truth">${meta.truthRouteCompleted ? "重读真相路线" : "进入真相路线"}</button>
+          <button class="btn primary" data-action="open-truth">${meta.truthRouteCompleted ? "重读真相线" : "开始真相线"}</button>
           ${epilogueButton}
         </div>
       </section>
@@ -6158,7 +6158,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
   function buildNextNotice(roleId, slotId, encounterId, effects, intent) {
     if (effects.generatorGain > 0) {
       const progress = state.generators.progress;
-      const generatorText = getGeneratorNotice(progress) || "发电机已经被修好了一台。";
+      const generatorText = getGeneratorNotice(progress) || "一台发电机已修复。";
       if (intent.generatorOpportunityKind === "support") {
         return `${generatorText} 你刚才的协助已经接进供电线路，下一时段能明显看见灯色更稳。`;
       }
@@ -6494,7 +6494,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       warnings.push("你下一步几乎只剩休息或极少数低成本选择。");
     }
     if (getSanState(currentState) === "truth") {
-      warnings.push("你已经看见真实，继续硬吃信息时更容易直接滑向 SAN 归零。");
+      warnings.push("你已经看见真实，继续硬吃信息时更容易直接滑向理智崩溃。");
     } else if (getSanState(currentState) === "insight") {
       warnings.push("异常描写会继续变重，错误路径更容易把你推向低 SAN 区。");
     }
@@ -6763,12 +6763,12 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     checks.push({
       tone: heavy ? "fail" : "pass",
       label: "身体状态",
-      text: heavy ? "当前处于重伤，体能型或牺牲型结局会受阻。" : "身体状态没有阻断终局选择。",
+      text: heavy ? "重伤会限制体能和牺牲结局。" : "身体状态正常。",
     });
     checks.push({
       tone: saneEnough ? "pass" : "fail",
       label: "理智状态",
-      text: saneEnough ? "理智仍能支撑终局判断。" : "理智不足，真相或牺牲会被扭曲。",
+      text: saneEnough ? "理智尚可支撑。" : "理智不足，真相与牺牲将被扭曲。",
     });
     checks.push({
       tone: currentState.exiledByVote ? "fail" : "pass",
@@ -6777,7 +6777,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         ? "你在票型公开阶段被放逐。"
         : currentState.voteDeaths.length
           ? `被放逐：${currentState.voteDeaths.map((id) => ENTITIES[id]?.short || id).join(" / ")}。`
-          : "本轮没有投票放逐记录。",
+          : "无放逐记录。",
     });
     checks.push({
       tone: outcome?.scope === "special" ? "pass" : "fail",
@@ -6970,7 +6970,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     if (!scene || !Array.isArray(scene.paragraphs)) {
       state.scene = null;
       state.phase = "decision";
-      state.notice = "本时段结果文本缺失，系统已阻止进入异常结果页。请重新选择本时段行动。";
+      state.notice = "本时段结果缺失，请重新选择行动。";
       persist();
       render();
       return;
@@ -6981,7 +6981,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     state.scenePage = 0;
     applyEffectsToState(state, scene.effects, scene);
     if (isTerminalFailure(state)) {
-      state.notice = isDead(state) ? "你的 HP 已经归零。" : "你的 SAN 已经归零。";
+      state.notice = isDead(state) ? "你的体力已耗尽。" : "你的理智已崩溃。";
     }
     if (scene.effects.flags.voteOutcome) {
       state.flags.voteOutcome = scene.effects.flags.voteOutcome;
@@ -7020,7 +7020,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       state.flags.voteRevealPending = false;
       state.slotIndex = Math.min(SLOT_ORDER.indexOf(VOTE_REVEAL_SLOT), SLOT_ORDER.length - 1);
       state.notice = vote.exiledByVote
-        ? "票型已经公开。你成了最高票者。"
+        ? "票型已公开，你是最高票。"
         : `票型已经公开，${vote.deaths.map((id) => ENTITIES[id]?.short || "未知").join(" / ")}被放逐。`;
       state.phase = "decision";
       state.scene = null;
@@ -7233,7 +7233,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     const chips = buildReadableOptionChips(intent, module, compactRoute);
     const proseLine = compactRoute ? "" : buildOptionFlavorLine(roleId, slotId, module, intent);
     const focusLabel = compactRoute || !module ? "" : formatFocusLabel(module.focus);
-    const topHint = restedThisSlot ? "已休息" : exhausted && intent.tags.includes("rest") ? "唯一可选" : `行动力 ${intent.mpCost}`;
+    const topHint = restedThisSlot ? "已休整" : exhausted && intent.tags.includes("rest") ? "唯一选项" : `行动力 ${intent.mpCost}`;
     return `
       <button class="option-card ${disabled ? "disabled" : ""} ${restedThisSlot ? "rest-locked" : ""} ${exhausted && intent.tags.includes("rest") ? "rest-ready" : ""}" data-action="choose-option" data-option="${key}" ${disabled ? "disabled" : ""}>
         <div class="option-top">
@@ -7424,7 +7424,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
               <div class="stats-block intro-side-stats">
                 <div class="stat-chip"><span>已解锁档案</span><strong>${unlockedCount()} / 6</strong></div>
                 <div class="stat-chip"><span>最近保存</span><strong>${savedRole ? `${savedRole.name} · ${SLOT_ORDER[saved.slotIndex || 0]}` : "无"}</strong></div>
-                <div class="stat-chip"><span>当前人物</span><strong>${selected.startEnabled ? "可操作" : "仅供展示"}</strong></div>
+                <div class="stat-chip"><span>当前人物</span><strong>${selected.startEnabled ? "可玩" : "仅展示"}</strong></div>
                 <div class="stat-chip"><span>初始房间</span><strong>${selected.startRoomLabel || selected.startRoom || "未公开"}</strong></div>
               </div>
             </section>
@@ -7756,9 +7756,9 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
               ${renderMeter("MP", state.stats.mp, state.maxStats.mp, { status: getMpLabel(state) })}
               ${renderMeter("SAN", state.stats.san, 99, { status: `${getSanLabel(state)}${getSanHint(state)}` })}
               ${renderMeter("真相", truthVisible ? state.stats.truth : 0, 100, { status: truthVisible ? getTruthTierLabel(state.stats.truth) : "隐藏", hideValue: !truthVisible, hideBar: !truthVisible })}
-              ${renderMeter("发电机", state.generators.progress, 4, { status: state.generators.progress ? getGeneratorNotice(state.generators.progress) : "待启动" })}
+              ${renderMeter("发电机", state.generators.progress, 4, { status: state.generators.progress ? getGeneratorNotice(state.generators.progress) : "未启动" })}
             </div>
-            <div class="notice-box compact-notice ${isLowSan(state) ? "low-san-hint" : ""}"><strong>提示</strong><span>${getSanState(state) === "truth" ? `你看见真实，${getTruthTierLabel(state.stats.truth)}。` : state.stats.mp <= 0 ? getMpEmptyNotice(state) : state.notice || "当前仍以叙事推进为主。"}</span>${lowSanEcho ? `<span class="san-echo">${escapeHtml(lowSanEcho)}</span>` : ""}</div>
+            <div class="notice-box compact-notice ${isLowSan(state) ? "low-san-hint" : ""}"><strong>提示</strong><span>${getSanState(state) === "truth" ? `你看见真实，${getTruthTierLabel(state.stats.truth)}。` : state.stats.mp <= 0 ? getMpEmptyNotice(state) : state.notice || "继续推进剧情。"}</span>${lowSanEcho ? `<span class="san-echo">${escapeHtml(lowSanEcho)}</span>` : ""}</div>
           </section>
           <section class="panel rail-card">
             <div class="panel-headline">关系波动</div>
@@ -7803,7 +7803,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
               ${supperSceneMode ? renderChoiceEchoLayer(state) : ""}
               <div class="tag-row">
                 <span class="tag-pill">${voteRevealMode ? "A13 · 投票房" : slot.location}</span>
-                <span class="tag-pill">${voteRevealMode ? "票型与死亡已经落地" : supperSceneMode ? escapeHtml(buildSupperSceneStatusChip(role.id, slotId, state)) : slot.anchor}</span>
+                <span class="tag-pill">${voteRevealMode ? "票型与死亡已落定" : supperSceneMode ? escapeHtml(buildSupperSceneStatusChip(role.id, slotId, state)) : slot.anchor}</span>
               </div>
               <p>${voteRevealMode ? "你得看着每一张票变成名字，再看着名字变成死路。" : supperSceneMode ? escapeHtml(buildSupperSceneVoice(role.id, slotId, state)) : buildDecisionContext(role.id, slotId)}</p>
             </div>
@@ -7816,7 +7816,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
                 <section class="panel narrative-panel">
                   <div class="notice-box ${isLowSan(state) ? "low-san-hint" : ""}">
                     <strong>时段回响</strong>
-                    <span>${state.notice || "线路刚开始，你还来不及知道自己的选择会在哪一处墙角回响。"} </span>
+                    <span>${state.notice || "游戏刚开始，你的选择将在后续产生回响。"} </span>
                     ${lowSanEcho ? `<span class="san-echo">${escapeHtml(lowSanEcho)}</span>` : ""}
                   </div>
                   <div class="option-grid">
@@ -7842,10 +7842,10 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
             <div class="panel-headline">系统功能</div>
             <div class="control-stack">
               <button class="btn" data-action="undo-choice" ${state.undoStack?.length ? "" : "disabled"}>撤回上一步</button>
-              <button class="btn" data-action="toggle-fast">${state.fast ? "关闭快进摘要" : "开启快进摘要"}</button>
+              <button class="btn" data-action="toggle-fast">${state.fast ? "关闭快进" : "开启快进"}</button>
               <button class="btn" data-action="open-log">回看日志</button>
               <button class="btn" data-action="open-save">手动存档</button>
-              <button class="btn" data-action="toggle-sound">${state.sound ? "关闭按钮音" : "开启按钮音"}</button>
+              <button class="btn" data-action="toggle-sound">${state.sound ? "关闭音效" : "开启音效"}</button>
               <button class="btn" data-action="back-title">返回标题</button>
             </div>
           </section>
@@ -8342,7 +8342,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       <button class="option-card ${disabled ? "disabled" : ""} ${restedThisSlot ? "rest-locked" : ""} ${exhausted && intent.tags.includes("rest") ? "rest-ready" : ""}" data-action="choose-option" data-option="${key}" ${disabled ? "disabled" : ""}>
         <div class="option-top">
           <strong>${key}</strong>
-          <span>${restedThisSlot ? "已休息" : exhausted && intent.tags.includes("rest") ? "唯一可选" : compactRoute ? `行动力 ${intent.mpCost}` : `行动力 ${intent.mpCost}`}</span>
+          <span>${restedThisSlot ? "已休整" : exhausted && intent.tags.includes("rest") ? "唯一选项" : compactRoute ? `行动力 ${intent.mpCost}` : `行动力 ${intent.mpCost}`}</span>
         </div>
         <p>${compactLabel}</p>
         ${focusLabel ? `<div class="archive-meta">${focusLabel}</div>` : ""}
@@ -8419,16 +8419,16 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
     const heavyInjury = isHeavyInjury(state);
     const sanState = getSanState(state);
     const summaryText = isDead(state)
-      ? "你已经撑不过下一步了。"
+      ? "你已无法继续。"
       : isInsane(state)
-        ? "理智已经断开，之后不会再有正常的判断。"
+        ? "理智已断，无法判断。"
         : heavyInjury
-      ? "剧痛压着每一步，结果只剩下还能不能继续。"
+      ? "剧痛难忍，只能硬撑。"
       : sanState === "truth"
         ? `你看见真实，${getTruthTierLabel(state.stats.truth)}。`
         : sanState === "insight"
-          ? "你已经开始分不清回声和警告。"
-          : "这一步留下了后续回响。";
+          ? "你已分不清回声与警告。"
+          : "此举将留下回响。";
     const summaryChips = [];
     const effectReasons = buildEffectReasonSummary(scene.effects || { stats: {}, relations: {}, notes: [] });
     const effectBreakdown = buildEffectBreakdown(scene.effects || { stats: {}, relations: {}, relationEchoes: {}, notes: [], addWords: [], addClues: [], addItems: [] });
@@ -8440,10 +8440,10 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
       ? renderCompactRouteResultSummary(effectBreakdown, nextStepWarnings, effectReasons)
       : "";
     const headChipLimit = isAnjie ? 4 : 6;
-    if (heavyInjury) summaryChips.push("重伤", "短句压缩");
-    if (isDead(state)) summaryChips.push("HP 归零");
-    if (isInsane(state)) summaryChips.push("SAN 归零");
-    if (state.stats.mp <= 0) summaryChips.push("只剩休息");
+    if (heavyInjury) summaryChips.push("重伤", "简短描述");
+    if (isDead(state)) summaryChips.push("体力耗尽");
+    if (isInsane(state)) summaryChips.push("理智崩溃");
+    if (state.stats.mp <= 0) summaryChips.push("只能休息");
     if (Number(state.stats.san || 0) < SAN_VISUAL_THRESHOLD) summaryChips.push("低理智");
     if (sanState === "truth") summaryChips.push("看见真实");
     return `
@@ -8474,9 +8474,9 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
         ${isAnjie || compactRoute ? "" : `<div class="effect-wrap">
           ${scene.effectChips.map((chip) => `<span class="tag-pill">${chip}</span>`).join("")}
         </div>`}
-        ${routePaged && resultPages.length > 1 ? `<div class="result-pager"><span>第 ${pageIndex + 1} / ${resultPages.length} 页</span><span>${hasMorePages ? "【继续】" : "已读完本段"}</span></div>` : ""}
+        ${routePaged && resultPages.length > 1 ? `<div class="result-pager"><span>第 ${pageIndex + 1} / ${resultPages.length} 页</span><span>${hasMorePages ? "【继续】" : "已读完"}</span></div>` : ""}
         <div class="footer-actions">
-          <button class="btn primary" data-action="continue-slot">${hasMorePages ? "【继续】" : state.slotIndex === SLOT_ORDER.length - 1 ? "结算结局" : "进入下一时段"}</button>
+          <button class="btn primary" data-action="continue-slot">${hasMorePages ? "【继续】" : state.slotIndex === SLOT_ORDER.length - 1 ? "查看结局" : "进入下一时段"}</button>
           <button class="btn" data-action="open-log">查看日志</button>
         </div>
       </section>
@@ -8557,7 +8557,7 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
             <div class="detail-line"><strong>全局进度</strong><span>已完成 ${meta.completedRoles.length} / ${PLAYABLE_ROLE_IDS.length} 名主角线路</span></div>
             <div class="detail-line"><strong>真相路线</strong><span>${meta.truthRouteUnlocked ? "埃莉诺文件夹已解锁" : "完成 6 名主角线路后解锁"}</span></div>
             <div class="footer-actions">
-              ${meta.truthRouteUnlocked ? `<button class="btn primary" data-action="open-truth">${meta.truthRouteCompleted ? "重读真相路线" : "进入真相路线"}</button>` : ""}
+              ${meta.truthRouteUnlocked ? `<button class="btn primary" data-action="open-truth">${meta.truthRouteCompleted ? "重读真相线" : "开始真相线"}</button>` : ""}
               <button class="btn primary" data-action="archive">查看全部档案</button>
               <button class="btn" data-action="restart-role" data-role="${role.id}">重开该角色</button>
               <button class="btn" data-action="back-title">返回标题</button>
@@ -8625,12 +8625,12 @@ function applyInteractionRelationFallback(draftState, intent, encounterId, effec
                 .map((slot) => {
                   const entry = slots[slot];
                   const savedRole = entry?.selectedRole && ROLE_DEFS[entry.selectedRole] ? ROLE_DEFS[entry.selectedRole] : null;
-                  const title = savedRole ? `${savedRole.name} · ${SLOT_ORDER[entry.slotIndex || 0]}` : "空槽";
+                  const title = savedRole ? `${savedRole.name} · ${SLOT_ORDER[entry.slotIndex || 0]}` : "空存档";
                   return `
                     <section class="panel save-card">
                       <h3>槽位 ${slot}</h3>
                       <p>${title}</p>
-                      <div class="archive-meta">${entry?.savedAt || "尚未保存"}</div>
+                      <div class="archive-meta">${entry?.savedAt || "未保存"}</div>
                       <div class="footer-actions">
                         <button class="btn primary" data-action="save-slot" data-slot="${slot}">保存到此处</button>
                         <button class="btn" data-action="load-slot" data-slot="${slot}" ${entry ? "" : "disabled"}>读取</button>
